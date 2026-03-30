@@ -9,4 +9,6 @@ dependencies = [
     "matplotlib>=3.10.8",
     "pandas>=3.0.1",
     "plotly>=6.5.2",
+    "scikit-learn>=1.6.0",
+    "joblib>=1.4.0",
 ]

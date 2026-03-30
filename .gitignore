@@ -13,6 +13,9 @@ wheels/
 output/
 plots/
 
+# Trained model files (regenerate with: python src/main.py --retrain)
+models/
+
 # Backup files
 *.bak
 src/backup/

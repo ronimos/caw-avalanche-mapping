@@ -2,5 +2,6 @@
   "pythonVersion": "3.12",
   "venvPath": ".",
   "venv": ".venv",
-  "include": ["src"]
+  "include": ["src"],
+  "extraPaths": ["src"]
 }

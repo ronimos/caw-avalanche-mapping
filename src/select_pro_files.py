@@ -223,6 +223,13 @@ def main():
         shutil.copy2(pro_path, dest)
         print(f"  {pro_path.name}")
 
+        smet_path = pro_path.with_suffix(".smet")
+        if smet_path.exists():
+            shutil.copy2(smet_path, out_dir / smet_path.name)
+            print(f"  {smet_path.name}")
+        else:
+            print(f"  (no .smet found for {pro_path.name})")
+
     print("\nDone.")
     return 0
 

@@ -44,5 +44,5 @@ Managed with `uv`. Python 3.12 required.
 
 ## File Outputs (git-ignored via output/)
 
-- `output/<SEASON>/stability_{station_id}.html` — per-station Plotly interactive chart
-- `output/<SEASON>/avalanche_map.html` — Folium map; click markers to open stability plots
+- `output/assets/<SEASON>/stability/stability_{station_id}.html` — per-station Plotly interactive chart
+- `output/assets/<SEASON>/avalanche_map.html` — Folium map; click markers to open stability plots
