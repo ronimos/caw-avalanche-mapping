@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_890deb4feb78a6ea323dbcfeceed276f {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+    <div style="
+        position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+        z-index: 1000; background: rgba(255,255,255,0.93);
+        padding: 7px 22px; border-radius: 7px; border: 1px solid #bbb;
+        font-family: sans-serif; font-size: 15px; font-weight: bold;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.18); white-space: nowrap;
+    ">
+        Avalanche Observations &nbsp;|&nbsp; Forecast: January 23, 2026
+    </div>
+    
+    
+    <div style="
+        position: fixed; bottom: 40px; left: 12px; z-index: 1000;
+        background: rgba(255,255,255,0.94); padding: 10px 14px;
+        border-radius: 8px; border: 1px solid #ccc;
+        font-family: sans-serif; font-size: 12px; line-height: 1.7;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+    ">
+        <b>Forecast window</b><br>
+        <span style="color:#555">Now: Jan 23, 2026</span><br>
+        <span style="color:#555">Window: Jan 22 – Jan 25</span><br>
+        <hr style="margin:6px 0">
+        <b>Max probability in window</b><br>
+        <span style="color:#808080">&#9679;</span> No classifier<br>
+        <span style="color:#2ca02c">&#9679;</span> &lt; 50 %<br>
+        <span style="color:#e6c200">&#9679;</span> 50 – 65 %<br>
+        <span style="color:#ff7f0e">&#9679;</span> 65 – 80 %<br>
+        <span style="color:#d62728">&#9679;</span> 80 – 95 %<br>
+        <span style="color:#7b0000">&#9679;</span> &ge; 95 %
+    </div>
+    
+    
+            <div class="folium-map" id="map_890deb4feb78a6ea323dbcfeceed276f" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_890deb4feb78a6ea323dbcfeceed276f = L.map(
+                "map_890deb4feb78a6ea323dbcfeceed276f",
+                {
+                    center: [36.90363488372093, 72.26282023255813],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 9,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_9add0db4bdb32de13f02d5a20bf52100 = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 19,
+  "maxNativeZoom": 19,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_9add0db4bdb32de13f02d5a20bf52100.addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+        
+    
+            var tile_layer_080b735f0c77465dc660e542a5567efe = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 19,
+  "maxNativeZoom": 19,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_080b735f0c77465dc660e542a5567efe.addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+        
+    
+            var tile_layer_82902a7317cbeb4607a2537c87ef979f = L.tileLayer(
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                {
+  "minZoom": 0,
+  "maxZoom": 18,
+  "maxNativeZoom": 18,
+  "noWrap": false,
+  "attribution": "Esri World Imagery",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_82902a7317cbeb4607a2537c87ef979f.addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+        
+    
+            var tile_layer_6d3054bba388abdf42e5d348c12473f1 = L.tileLayer(
+                "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 18,
+  "maxNativeZoom": 18,
+  "noWrap": false,
+  "attribution": "OpenTopoMap",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_6d3054bba388abdf42e5d348c12473f1.addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+        
+    
+
+        function geo_json_a584c074f5b7416454f47f383a109ccf_onEachFeature(feature, layer) {
+            (
+        function(feature, layer) {
+            function wrapText(text, maxLen) {
+                var words = text.split(' ');
+                var lines = [], current = '';
+                for (var i = 0; i < words.length; i++) {
+                    var word = words[i];
+                    var candidate = current ? current + ' ' + word : word;
+                    if (candidate.length <= maxLen) {
+                        current = candidate;
+                    } else {
+                        if (current) lines.push(current);
+                        current = word;
+                    }
+                }
+                if (current) lines.push(current);
+                return lines.join('<br>');
+            }
+
+            var p = feature.properties;
+            var tip = '<b>' + p.name + '</b>';
+            if (p.date)      tip += '<br>Date: '      + p.date;
+            if (p.aspect)    tip += '<br>Aspect: '    + p.aspect;
+            if (p.elevation) tip += '<br>Elevation: ' + p.elevation + ' m';
+            if (p.size)      tip += '<br>Size: '      + p.size;
+            if (p.forecast_prob !== null && p.forecast_prob !== undefined) {
+                tip += '<br><b>Forecast prob: ' + Math.round(p.forecast_prob * 100) + '%</b>';
+            } else {
+                tip += '<br>Forecast prob: <i>n/a</i>';
+            }
+            if (p.remarks)   tip += '<br><i>'         + wrapText(p.remarks, 50) + '</i>';
+            layer.bindTooltip(tip, {sticky: true});
+            layer.on('click', function() {
+                if (p.url) { window.open(p.url, '_blank'); }
+            });
+        }
+    )(feature, layer);
+
+            layer.on({
+            });
+        };
+        var geo_json_a584c074f5b7416454f47f383a109ccf = L.geoJson(null, {
+                onEachFeature: geo_json_a584c074f5b7416454f47f383a109ccf_onEachFeature,
+            
+            ...{
+  "pointToLayer": 
+        function(feature, latlng) {
+            var p = feature.properties.forecast_prob;
+            var fill, stroke;
+            if (p === null || p === undefined) {
+                fill = '#808080'; stroke = '#505050';
+            } else if (p >= 0.95) {
+                fill = '#7b0000'; stroke = '#3d0000';
+            } else if (p >= 0.80) {
+                fill = '#d62728'; stroke = '#8b0000';
+            } else if (p >= 0.65) {
+                fill = '#ff7f0e'; stroke = '#b35a00';
+            } else if (p >= 0.50) {
+                fill = '#e6c200'; stroke = '#9e8600';
+            } else {
+                fill = '#2ca02c'; stroke = '#1a6b1a';
+            }
+            return L.circleMarker(latlng, {
+                radius: 10,
+                fillColor: fill,
+                color: stroke,
+                weight: 1.5,
+                opacity: 1,
+                fillOpacity: 0.88
+            });
+        }
+    ,
+}
+        });
+
+        function geo_json_a584c074f5b7416454f47f383a109ccf_add (data) {
+            geo_json_a584c074f5b7416454f47f383a109ccf
+                .addData(data);
+        }
+            geo_json_a584c074f5b7416454f47f383a109ccf_add({"features": [{"geometry": {"coordinates": [75.31293, 36.45159], "type": "Point"}, "properties": {"aspect": "S", "date": "March 14, 2026", "elevation": 3742, "forecast_prob": 0.6229, "name": "Shimshal", "remarks": "Center Shimshal.. triggered again today early in the morning.. Reached into the activity zone and damaged a boundary wall of a forest land. No other damages", "size": 2.0, "url": "assets/2025-2026/stability_180343_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [74.85128, 36.38648], "type": "Point"}, "properties": {"aspect": "E", "date": "March 12, 2026", "elevation": 2791, "forecast_prob": 0.3299, "name": "Gulmit", "remarks": NaN, "size": 3.0, "url": "assets/2025-2026/stability_176522_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [74.39213, 36.23419], "type": "Point"}, "properties": {"aspect": "N", "date": "March 12, 2026", "elevation": 2133, "forecast_prob": 0.008, "name": "Jaffarabad", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_165261_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.4648, 36.41359], "type": "Point"}, "properties": {"aspect": "W", "date": "March 12, 2026", "elevation": 3266, "forecast_prob": 0.0026, "name": "Qurqolti", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_176204_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [75.32794, 36.45172], "type": "Point"}, "properties": {"aspect": "S", "date": "March 12, 2026", "elevation": 4434, "forecast_prob": 0.6229, "name": "Shimshal", "remarks": "Avalanches reported at two locations in Shimshal. first was triggered in the morning and the second during afternoon. One of them impacted four irrigation channels by filling the them with debris and other remained outside activity zone. Video", "size": 2.0, "url": "assets/2025-2026/stability_180343_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [75.32794, 36.45172], "type": "Point"}, "properties": {"aspect": "S", "date": "March 12, 2026", "elevation": 4434, "forecast_prob": 0.6229, "name": "Shimshal", "remarks": "Avalanches reported at two locations in Shimshal. first was triggered in the morning and the second during afternoon. One of them impacted four irrigation channels by filling the them with debris and other remained outside activity zone. Video", "size": 2.0, "url": "assets/2025-2026/stability_180343_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [74.20195, 36.11623], "type": "Point"}, "properties": {"aspect": "E", "date": "March 12, 2026", "elevation": 3852, "forecast_prob": 0.0146, "name": "Naltar", "remarks": "Near the Naltar Powerhouse. Video. From Ejaz: An avalanche was triggered this morning in Nalter Payeen, Naltar Valley. No damages or losses were reported due to the avalanche mitigation work implemented by AKAH in 2022. Before the intervention, the nallah in the area was narrow and incised, which increased the risk of avalanche overflow toward nearby settlements. The mitigation measures improved and widened the channel, allowing the avalanche debris to pass safely through the nallah. This event demonstrates the effectiveness of the mitigation work in reducing avalanche risk and protecting the community.", "size": 3.0, "url": "assets/2025-2026/stability_165202_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [74.20195, 36.11623], "type": "Point"}, "properties": {"aspect": "E", "date": "March 12, 2026", "elevation": 3852, "forecast_prob": 0.0146, "name": "Naltar", "remarks": "Near the Naltar Powerhouse. Video. From Ejaz: An avalanche was triggered this morning in Nalter Payeen, Naltar Valley. No damages or losses were reported due to the avalanche mitigation work implemented by AKAH in 2022. Before the intervention, the nallah in the area was narrow and incised, which increased the risk of avalanche overflow toward nearby settlements. The mitigation measures improved and widened the channel, allowing the avalanche debris to pass safely through the nallah. This event demonstrates the effectiveness of the mitigation work in reducing avalanche risk and protecting the community.", "size": 3.0, "url": "assets/2025-2026/stability_165202_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.41792, 36.581], "type": "Point"}, "properties": {"aspect": "E", "date": "March 12, 2026", "elevation": 3736, "forecast_prob": 0.0005, "name": "Umalsat", "remarks": "A small size Avalanche \"Duhat\" triggered near Umalsat. No damages.", "size": 2.0, "url": "assets/2025-2026/stability_183642_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [72.14194, 36.35472], "type": "Point"}, "properties": {"aspect": "S", "date": "March 10, 2026", "elevation": 3185, "forecast_prob": 0.0005, "name": "Zongdramgram", "remarks": "63 mm rain fell in 24 hours. From Asma: Today at around 0430 hours, an avalanche incident occurred outside the residential area of village Shagrom, Terich Valley, Upper Chitral. Due to the incident, the River Terich was temporarily blocked; however, the flow of the river was later restored. No damages have been reported so far.", "size": 4.0, "url": "assets/2025-2026/stability_172183_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.41683, 36.58164], "type": "Point"}, "properties": {"aspect": "E", "date": "March 05, 2026", "elevation": 3837, "forecast_prob": 0.0005, "name": "Umalat", "remarks": "2pm. \"Duhat\" (regular powder cloud), outside activity zone in less populated area.", "size": 1.0, "url": "assets/2025-2026/stability_183642_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.90547, 36.49465], "type": "Point"}, "properties": {"aspect": "N", "date": "March 05, 2026", "elevation": 2579, "forecast_prob": 0.0, "name": "Immit", "remarks": "Outside activity zone. Small snow slips in Adrakh Nali and Chandi located in Immit.", "size": 2.0, "url": "assets/2025-2026/stability_183741_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.46653, 36.41277], "type": "Point"}, "properties": {"aspect": "W", "date": "March 05, 2026", "elevation": 3267, "forecast_prob": 0.0026, "name": "Qurquti", "remarks": "outside activity zone, no damages", "size": 2.0, "url": "assets/2025-2026/stability_176204_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.44329, 36.65097], "type": "Point"}, "properties": {"aspect": "S", "date": "March 05, 2026", "elevation": 2839, "forecast_prob": 0.02, "name": "Darkut ", "remarks": "Small avalanches outside village.", "size": 1.0, "url": "assets/2025-2026/stability_187363_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.44329, 36.65097], "type": "Point"}, "properties": {"aspect": "S", "date": "March 05, 2026", "elevation": 2839, "forecast_prob": 0.02, "name": "Darkut ", "remarks": "Small avalanches outside village.", "size": 1.0, "url": "assets/2025-2026/stability_187363_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.01856, 38.36539], "type": "Point"}, "properties": {"aspect": "N", "date": "March 05, 2026", "elevation": 3717, "forecast_prob": 0.0018, "name": "Charbagh", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_272401_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.23552, 38.29659], "type": "Point"}, "properties": {"aspect": "N", "date": "March 05, 2026", "elevation": 2332, "forecast_prob": 0.0031, "name": "Zanif", "remarks": "AKAH CERT team helped to reopen the road in Zenif village of Maimai which was blocked by an Avalanche. Reported by Sahim (pics). Mahnaw is nearest station.", "size": NaN, "url": "assets/2025-2026/stability_268701_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.23552, 38.29659], "type": "Point"}, "properties": {"aspect": "N", "date": "March 05, 2026", "elevation": 2332, "forecast_prob": 0.0031, "name": "Zanif", "remarks": "AKAH CERT team helped to reopen the road in Zenif village of Maimai which was blocked by an Avalanche. Reported by Sahim (pics). Mahnaw is nearest station.", "size": NaN, "url": "assets/2025-2026/stability_268701_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.41199, 37.37399], "type": "Point"}, "properties": {"aspect": "E", "date": "March 05, 2026", "elevation": 2846, "forecast_prob": 0.0001, "name": "Arakht", "remarks": "A medium size avalanche occurred near Arakht village. No causalities just blocked the local road and destroyed some agricultural land and trees.", "size": 3.0, "url": "assets/2025-2026/stability_224101_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.67839, 38.37831], "type": "Point"}, "properties": {"aspect": "N", "date": "February 13, 2026", "elevation": 1778, "forecast_prob": 0.5244, "name": "Patkunob", "remarks": "From Shuhrat: Darvoz District, Patkunob Village: An avalanche occurred and temporarily blocked the main Khorog\u2013Dushanbe road. The incident happened far from residential areas. No damages or casualties were reported. The road was cleared and traffic has been fully restored.", "size": 3.0, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.61033, 37.85263], "type": "Point"}, "properties": {"aspect": "W", "date": "February 13, 2026", "elevation": 2691, "forecast_prob": 0.0703, "name": "Patkunob Village", "remarks": "From Shuhrat: Rushon District, Pastkhuf Village: An avalanche occurred and temporarily blocked the main Khorog\u2013Dushanbe road. The incident happened far from residential areas. No damages or casualties were reported. The road was cleared and traffic has been fully restored.", "size": 3.0, "url": "assets/2025-2026/stability_250224_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.61033, 37.85263], "type": "Point"}, "properties": {"aspect": "W", "date": "February 13, 2026", "elevation": 2691, "forecast_prob": 0.0703, "name": "Patkunob Village", "remarks": "From Shuhrat: Rushon District, Pastkhuf Village: An avalanche occurred and temporarily blocked the main Khorog\u2013Dushanbe road. The incident happened far from residential areas. No damages or casualties were reported. The road was cleared and traffic has been fully restored.", "size": 3.0, "url": "assets/2025-2026/stability_250224_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.68716, 38.42393], "type": "Point"}, "properties": {"aspect": "E", "date": "February 10, 2026", "elevation": 1888, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. Five avalanches occurred outside the village of Dekhah in Shakai District (also known as Dawaz). Outside Living zone. Road is blocked between Shukai and Nusai.", "size": 3.0, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.70141, 38.40146], "type": "Point"}, "properties": {"aspect": "E", "date": "February 10, 2026", "elevation": 1986, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. Five avalanches occurred outside the village of Dekhah in Shakai District (also known as Dawaz). Outside Living zone. Road is blocked between Shukai and Nusai.", "size": 3.0, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.6681, 38.38922], "type": "Point"}, "properties": {"aspect": "N", "date": "February 10, 2026", "elevation": 1326, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. Five avalanches occurred outside the village of Dekhah in Shakai District (also known as Dawaz). Outside Living zone. Road is blocked between Shukai and Nusai.", "size": 3.0, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.70141, 38.39258], "type": "Point"}, "properties": {"aspect": "S", "date": "February 10, 2026", "elevation": 1686, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. Five avalanches occurred outside the village of Dekhah in Shakai District (also known as Dawaz). Outside Living zone. Road is blocked between Shukai and Nusai.", "size": 3.0, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.68287, 38.35523], "type": "Point"}, "properties": {"aspect": "W", "date": "February 09, 2026", "elevation": 1969, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. An Avalanche occurred outside the living zoon in Dekhah village. No impact but the road between Shakai and Nusai is blocked", "size": NaN, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [70.68407, 38.37192], "type": "Point"}, "properties": {"aspect": "S", "date": "February 09, 2026", "elevation": 1564, "forecast_prob": 0.5244, "name": "Purtel", "remarks": "Purtel, Nusai. An Avalanche occurred outside the living zoon in Dekhah village. No impact but the road between Shakai and Nusai is blocked", "size": NaN, "url": "assets/2025-2026/stability_268601_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.6651, 36.11846], "type": "Point"}, "properties": {"aspect": "E", "date": "January 23, 2026", "elevation": 3066, "forecast_prob": 0.9951, "name": "Pech Ouch", "remarks": "From Asma: Main Arkari Valley Road is blocked at Pechouch, Arkari, due to a snow avalanche. No other damage has been reported.", "size": 3.0, "url": "assets/2025-2026/stability_160942_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.43338, 36.01769], "type": "Point"}, "properties": {"aspect": "W", "date": "January 23, 2026", "elevation": 3252, "forecast_prob": 0.9993, "name": "Graramchasa", "remarks": "From Asma: Main Garamchashma Valley Road is blocked at multiple locations due to snow avalanches. No damage has been reported so far.", "size": 3.0, "url": "assets/2025-2026/stability_157164_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.69045, 35.38658], "type": "Point"}, "properties": {"aspect": "S", "date": "January 23, 2026", "elevation": 1723, "forecast_prob": 0.9989, "name": "Dammer Nissar", "remarks": "From Ejaz: Damail Avalanche: Today at around 12 PM Bacha s/o Gul Muhammad family hit by avalanche- as a result his 05 daughters 02 sons, Bacha and his wife died, 01 son age 9 years was rescued by villagers. No more details. Telephone network is not working well. It is located in highly insecure area along Afghan border.", "size": NaN, "url": "assets/2025-2026/stability_142301_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.6625, 35.39296], "type": "Point"}, "properties": {"aspect": "E", "date": "January 23, 2026", "elevation": 1699, "forecast_prob": 0.9989, "name": "Dammer Nissar", "remarks": "From Ejaz: Damail Avalanche: Today at around 12 PM Bacha s/o Gul Muhammad family hit by avalanche- as a result his 05 daughters 02 sons, Bacha and his wife died, 01 son age 9 years was rescued by villagers. No more details. Telephone network is not working well. It is located in highly insecure area along Afghan border.", "size": NaN, "url": "assets/2025-2026/stability_142301_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.67705, 35.37718], "type": "Point"}, "properties": {"aspect": "N", "date": "January 23, 2026", "elevation": 1467, "forecast_prob": 0.9989, "name": "Dammer Nissar", "remarks": "From Ejaz: Damail Avalanche: Today at around 12 PM Bacha s/o Gul Muhammad family hit by avalanche- as a result his 05 daughters 02 sons, Bacha and his wife died, 01 son age 9 years was rescued by villagers. No more details. Telephone network is not working well. It is located in highly insecure area along Afghan border.", "size": NaN, "url": "assets/2025-2026/stability_142301_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [69.05432, 35.31641], "type": "Point"}, "properties": {"aspect": "S", "date": "January 23, 2026", "elevation": 3894, "forecast_prob": 0.9972, "name": "Salang", "remarks": "The info came from Rahman, both from gov workers as well as news.", "size": 3.0, "url": "assets/2025-2026/stability_153203_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [72.38314, 36.2563], "type": "Point"}, "properties": {"aspect": "N", "date": "January 23, 2026", "elevation": 3006, "forecast_prob": 0.9952, "name": "Meragram ", "remarks": "From Anila: Snow avalanche occurred outside the activity zone of Village Meragram #1, Upper Chitral, at approximately 0700 hours. No damage has been reported so far", "size": 3.0, "url": "assets/2025-2026/stability_164801_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.40465, 36.01662], "type": "Point"}, "properties": {"aspect": "N", "date": "January 23, 2026", "elevation": 3580, "forecast_prob": 0.9986, "name": "Toghan Nullah", "remarks": "Asma reported it. It hit a road and blocked it. Details in attachment.", "size": 3.0, "url": "assets/2025-2026/stability_157141_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [73.4156, 36.58058], "type": "Point"}, "properties": {"aspect": "E", "date": "January 04, 2026", "elevation": 3820, "forecast_prob": 0.0005, "name": "Umalsat", "remarks": "From Anila and Sher Wali: One powder avalanche, locally known as \u201cDuhat,\u201d occurred yesterday in Umalsat village in Yasin District, Ghizar. No damage was reported. Video: https://youtube.com/shorts/qb5zwudQLEM", "size": 2.0, "url": "assets/2025-2026/stability_183642_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.41801, 37.38085], "type": "Point"}, "properties": {"aspect": "S", "date": "December 15, 2025", "elevation": 2904, "forecast_prob": 0.0001, "name": "Arakht", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_224101_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.40683, 37.37543], "type": "Point"}, "properties": {"aspect": "E", "date": "December 15, 2025", "elevation": 2817, "forecast_prob": 0.0001, "name": "Arakht", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_224101_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.42133, 37.36932], "type": "Point"}, "properties": {"aspect": "N", "date": "December 15, 2025", "elevation": 2827, "forecast_prob": 0.0001, "name": "Arakht", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_224101_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [72.0307, 35.79131], "type": "Point"}, "properties": {"aspect": "S", "date": "December 15, 2025", "elevation": 3146, "forecast_prob": 0.1984, "name": "Madaklasht", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_142403_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.81101, 35.83699], "type": "Point"}, "properties": {"aspect": "W", "date": "December 15, 2025", "elevation": 2413, "forecast_prob": 0.0236, "name": "Chitral", "remarks": NaN, "size": NaN, "url": "assets/2025-2026/stability_146104_res.html"}, "type": "Feature"}, {"geometry": {"coordinates": [71.58535, 37.54068], "type": "Point"}, "properties": {"aspect": "S", "date": "December 15, 2025", "elevation": 3350, "forecast_prob": 0.2325, "name": "Khorog", "remarks": NaN, "size": 4.0, "url": "assets/2025-2026/stability_235323_res.html"}, "type": "Feature"}], "type": "FeatureCollection"});
+        geo_json_a584c074f5b7416454f47f383a109ccf.setStyle(function(feature) {return feature.properties.style;});
+
+        
+    
+            geo_json_a584c074f5b7416454f47f383a109ccf.addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+        
+    
+            var layer_control_c23f2141c0e76d66518d4f05c85602d3_layers = {
+                base_layers : {
+                    "openstreetmap" : tile_layer_9add0db4bdb32de13f02d5a20bf52100,
+                    "Standard" : tile_layer_080b735f0c77465dc660e542a5567efe,
+                    "Satellite" : tile_layer_82902a7317cbeb4607a2537c87ef979f,
+                    "Topographic" : tile_layer_6d3054bba388abdf42e5d348c12473f1,
+                },
+                overlays :  {
+                    "Avalanche Observations" : geo_json_a584c074f5b7416454f47f383a109ccf,
+                },
+            };
+            let layer_control_c23f2141c0e76d66518d4f05c85602d3 = L.control.layers(
+                layer_control_c23f2141c0e76d66518d4f05c85602d3_layers.base_layers,
+                layer_control_c23f2141c0e76d66518d4f05c85602d3_layers.overlays,
+                {
+  "position": "topright",
+  "collapsed": true,
+  "autoZIndex": true,
+}
+            ).addTo(map_890deb4feb78a6ea323dbcfeceed276f);
+
+        
+</script>
+</html>
