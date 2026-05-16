@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Generated output
-output
+output/
 plots/
 
 # Trained model files (regenerate with: python src/main.py --retrain)
@@ -19,3 +19,9 @@ models/
 # Backup files
 *.bak
 src/backup/
+
+# Binary documents
+*.pdf
+
+# Binary documents
+*.pdf
