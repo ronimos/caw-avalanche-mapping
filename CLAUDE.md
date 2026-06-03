@@ -41,6 +41,8 @@ To add a new season, drop `.pro` files into `data/simulations/<new-season>/` and
 
 Managed with `uv`. Python 3.12 required.
 - `pandas`, `plotly`, `folium`, `matplotlib`
+- `scikit-learn`, `joblib` — frequentist classifiers (per-station, regional, blended)
+- `pymc`, `arviz` — hierarchical Bayesian model (`src/hierarchical.py`); skip with `main.py --no-hierarchical`
 
 ## File Outputs (git-ignored via output/)
 
