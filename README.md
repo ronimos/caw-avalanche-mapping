@@ -1,97 +1,135 @@
-# snowpack
+# caw-avalanche-mapping
 
-Python tool for analyzing [SNOWPACK](https://models.slf.ch/p/snowpack/) model output to assess avalanche weak-layer stability and visualize field observations on an interactive map.
+Avalanche forecasting support for data-sparse Central Asia. The tool links NWP-driven [SNOWPACK](https://models.slf.ch/p/snowpack/) simulations to opportunistically-collected avalanche observations, trains per-station and pooled classifiers, and produces interactive stability plots and a forecast map. Developed for the ISSW 2026 paper *"Avalanche Forecasting in Data-Sparse Central Asia: A Weak-Supervision Framework."*
 
 ## Overview
 
-The workflow:
-1. Load avalanche observation points from a CSV file (lat/lon/aspect)
-2. Match each observation to the nearest SNOWPACK simulation station (`.pro` file)
-3. Parse the `.pro` files to extract layer heights and Sn38 stability indices
-4. Generate per-station interactive stability plots (Plotly HTML)
-5. Generate an interactive Folium map linking each observation to its station's stability plot
+The pipeline:
+
+1. Load avalanche observations from `data/observations/avalanches_<SEASON>.csv` (all seasons combined).
+2. Match each observation to the nearest SNOWPACK station of the same aspect, using `snowpack_stations_locations.csv`.
+3. Parse `.pro` (layer stratigraphy, Sn38) and `.smet` (meteorology) files into daily features.
+4. Train classifiers on the training season and evaluate them on the held-out test season:
+   - **per-station** logistic regression
+   - **regional** pooled logistic regression (CV-tuned regularization)
+   - **blended** confidence-weighted combination
+   - **hierarchical Bayesian** partial-pooling model (the headline model; also yields per-station uncertainty)
+5. Evaluate with temporal leave-one-out CV, event-level precision-recall, and an operational false-alarm analysis.
+6. Generate per-station interactive stability plots (Plotly) and an interactive Folium forecast map.
+
+See `docs/methods_and_results.md` for the full methods and results writeup.
 
 ## Project Structure
 
 ```
-snowpack/
+caw-avalanche-mapping/
 ├── src/
-│   ├── main.py          # Entry point — orchestrates the full pipeline
-│   └── snow_utils.py    # Core parsing, analysis, and plotting functions
+│   ├── main.py            # Entry point — orchestrates the full pipeline
+│   ├── snowpack_io.py     # .pro / .smet parsing, aspect-aware station matching
+│   ├── features.py        # daily feature engineering (reduced 5-feature set)
+│   ├── classifier.py      # per-station / regional / blended logistic regression + evaluation
+│   ├── hierarchical.py    # hierarchical Bayesian (PyMC) partial-pooling model
+│   └── visualization.py   # Plotly stability plots + Folium map
+├── scripts/
+│   └── sync_pro_files.py  # download season .pro/.smet from the remote server
 ├── data/
-│   ├── *.pro            # SNOWPACK simulation output files (one per station)
-│   ├── 2026_02_avalanches.csv    # Avalanche observations (main input)
-│   └── Avalanche Information.csv # Broader observation log (reference)
-├── plots/               # Generated HTML outputs (git-ignored)
-│   ├── stability_*.html # Per-station stability plots
-│   └── avalanche_map.html        # Interactive observation map
+│   ├── simulations/<SEASON>/*.pro,*.smet   # SNOWPACK outputs, one set per season
+│   ├── observations/avalanches_<SEASON>.csv # field/social-media observations per season
+│   └── snowpack_stations_locations.csv      # station id → lat/lon/elevation
+├── docs/
+│   ├── methods_and_results.md      # paper methods & results
+│   ├── ISSW2026_paper_outline.md   # paper outline
+│   └── map_design_discussion.md    # open map-design questions
+├── output/                # generated artifacts (git-ignored)
+├── models/                # saved classifiers (git-ignored)
 ├── pyproject.toml
 └── uv.lock
 ```
 
 ## Setup
 
-Requires Python 3.12. Uses [uv](https://docs.astral.sh/uv/) for dependency management.
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
 ```
 
-Dependencies: `pandas`, `matplotlib`, `plotly`, `folium`
+Dependencies: `pandas`, `numpy`, `scikit-learn`, `joblib`, `pymc`, `arviz`, `plotly`, `folium`, `matplotlib`.
 
 ## Running
 
 ```bash
-cd src
-uv run python main.py
+uv run python src/main.py              # full pipeline (trains/loads, evaluates, plots)
+uv run python src/main.py --retrain    # force retraining of all classifiers
+uv run python src/main.py --no-hierarchical   # skip the PyMC model / MCMC sampling
+uv run python src/main.py --forecast-date 2026-01-23
 ```
 
-Or from the repo root:
+Outputs are written to `output/`. Open `output/avalanche_map.html` and click any station marker to open its stability plot.
+
+### Adding a new season
+
+1. Drop `.pro`/`.smet` files into `data/simulations/<new-season>/` (or run `scripts/sync_pro_files.py`).
+2. Add `data/observations/avalanches_<new-season>.csv`.
+3. Set `SEASON` / `TRAIN_SEASON` in `src/main.py` and rerun with `--retrain`.
+
+### Downloading simulation files
+
+`scripts/sync_pro_files.py` downloads only the (station, aspect) `.pro`/`.smet` pairs needed for the observations, via rsync over SSH. Configure `.env` (copy from `.env.example`):
+
+```
+SSH_PORT=<port>
+SSH_KEY=~/.ssh/your_key
+```
 
 ```bash
-uv run python src/main.py
+uv run python scripts/sync_pro_files.py --dry-run   # preview
+uv run python scripts/sync_pro_files.py
 ```
-
-Outputs are written to `plots/`. Open `plots/avalanche_map.html` in a browser, then click any marker to open the linked station's stability plot.
 
 ## Data Formats
 
-### Avalanche Observations CSV
+### Observation CSV (`avalanches_<SEASON>.csv`)
 
-Expected columns: `File Name`, `Placemark Name`, `Latitude`, `Longitude`, and optionally an aspect column (may appear as `Unnamed: 4`).
+Columns: `Place`, `Lat`, `Long`, `Slope`, `Aspect` (N/E/S/W), `Elevation (M)`, `Date`, `Size`, `Remarks`.
 
-The filename is parsed for a date (e.g. `2026_02_avalanches.csv` → February 15, 2026) to set the initial view window on plots.
+### SNOWPACK `.pro` files
 
-### SNOWPACK `.pro` Files
-
-Standard SNOWPACK profile output. The parser reads three record codes:
+Station outputs named `{station_id}{aspect_suffix}_res.pro`, where the aspect suffix is `1`=N, `2`=E, `3`=S, `4`=W, and no suffix = flat. The parser reads three record codes:
 
 | Code | Content |
 |------|---------|
 | `0500` | Timestep date |
-| `0501` | Layer heights from ground (m), bottom→top |
-| `0532` | Sn38 (natural stability index) per layer, same order as 0501 |
+| `0501` | Layer heights from ground (cm), bottom→top |
+| `0532` | Sn38 (natural stability index) per layer, same order as `0501` |
 
-Layers shallower than 20 cm burial depth are excluded from analysis.
+Layers shallower than 20 cm burial depth are excluded.
 
-## Key Functions (`snow_utils.py`)
+## Model Features
 
-| Function | Purpose |
-|----------|---------|
-| `parse_snow_data(file_path)` | Parse `.pro` → long-format DataFrame (`timestamp`, `layer_z`, `burial_depth`, `sn38`) |
-| `plot_interactive_stability(df, output_path, ...)` | Generate 2-panel Plotly HTML: dominant weak layers (top) + min Sn38 timeseries (bottom) |
-| `create_avalanche_map(df, output_path, ...)` | Generate Folium map with clickable red markers |
-| `find_nearest_pro(lat, lon, data_dir)` | Match a coordinate to the closest `.pro` file by haversine distance |
-| `extract_pro_coordinates(pro_file)` | Read lat/lon from `.pro` header |
-| `parse_date_from_csv_filename(csv_path)` | Extract event date from filename patterns like `2026_02_15` |
+The classifiers use a reduced five-feature daily set (selected to limit overfitting given sparse events):
 
-## Stability Plot Details
+| Feature | Role |
+|---|---|
+| `HS` | Total snow depth — size / valley-reach proxy |
+| `HN24` | 24-hour new snow — loading trigger |
+| `TA_max` | Daily max air temperature — wet vs dry mechanism |
+| `sn38_min` | Whole-profile minimum stability index — weakest-layer strength |
+| `depth_lower_wl` | Burial depth of the weakest lower-zone layer |
 
-The upper panel shows "dominant weak layers" — layers that were, at any point in the simulation, the minimum-Sn38 layer. Each such layer gets a scatter trace colored by Sn38 (red = unstable, green = stable), with the snow surface plotted as a grey reference line.
+## Output Files (git-ignored under `output/`)
 
-The lower panel shows the minimum Sn38 across all layers at each timestep, providing an overall stability signal.
-
-If an event date is found in the CSV filename, the initial view zooms to ±7 days around that date; the full timeseries is accessible via the range slider.
+| File | Contents |
+|---|---|
+| `avalanche_map.html` | Folium forecast map; click markers for stability plots |
+| `assets/<SEASON>/stability_*.html` | Per-station Plotly stability charts |
+| `evaluation_{regional,blended,hierarchical}.csv` | Aggregate model metrics |
+| `evaluation_loo.csv` | Temporal leave-one-out per-fold results |
+| `evaluation_operational.csv` | Per-station recall-maximizing threshold + false-alarm rate |
+| `hierarchical_uncertainty.csv` | Per-station mean probability + posterior std |
+| `pr_curves.png` | Event-level precision-recall curves (all models) |
+| `loo_performance_by_events.png` | Learning curve: performance vs. training-event count |
+| `operational_thresholds.png` | False-alarm rate per station, by tier |
 
 ## Sn38 Interpretation
 
