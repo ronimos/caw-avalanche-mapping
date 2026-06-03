@@ -47,6 +47,10 @@ def _parse_args() -> argparse.Namespace:
         "--retrain", action="store_true",
         help="Force retraining of all per-station classifiers even if saved models exist.",
     )
+    p.add_argument(
+        "--no-hierarchical", action="store_true",
+        help="Skip the hierarchical Bayesian model (avoids the PyMC dependency / MCMC sampling).",
+    )
     return p.parse_args()
 
 
@@ -556,6 +560,57 @@ def main() -> None:
                 )
                 print("  → saved evaluation_blended.csv")
 
+            # --- Hierarchical Bayesian model (partial pooling) ---
+            # One multilevel model replaces per-station + regional + blend; each
+            # station's coefficients shrink toward the regional mean by an amount
+            # learned from its data. Posterior spread gives per-station uncertainty.
+            hier_prob_dict: dict[str, pd.Series] = {}
+            if not args.no_hierarchical:
+                try:
+                    from hierarchical import train_hierarchical
+                    print(f"\nTraining hierarchical Bayesian model "
+                          f"({len(train_features_dict)} stations)...")
+                    hmodel = train_hierarchical(train_features_dict, station_train_dates)
+                except ImportError:
+                    hmodel = None
+                    print("\n  PyMC not available — hierarchical model skipped.")
+
+                if hmodel is not None:
+                    hier_std_rows: list[dict] = []
+                    for sid, df in test_features.items():
+                        mean_p, std_p = hmodel.predict(sid, df)
+                        hier_prob_dict[sid] = mean_p
+                        # Forecast-window uncertainty summary (for map confidence)
+                        win = std_p[(std_p.index >= win_start) & (std_p.index <= win_end)]
+                        hier_std_rows.append({
+                            'station_id':       sid,
+                            'in_training':      sid in hmodel.station_list,
+                            'mean_prob_window': float(
+                                mean_p[(mean_p.index >= win_start) &
+                                       (mean_p.index <= win_end)].max()
+                            ) if not mean_p.dropna().empty else float('nan'),
+                            'std_window':       float(win.mean()) if not win.dropna().empty else float('nan'),
+                        })
+
+                    yt_h, ys_h = evaluate_event_level(
+                        hier_prob_dict, station_2526_dates, 3
+                    )
+                    if len(yt_h) > 0 and yt_h.sum() > 0:
+                        h_metrics = {
+                            'auc': float(roc_auc_score(yt_h, ys_h))
+                                   if len(set(yt_h.tolist())) > 1 else float('nan'),
+                            'ap':  float(average_precision_score(yt_h, ys_h)),
+                            'n_stations': float(len(hier_prob_dict)),
+                        }
+                        print(f"  Hierarchical:  AUC-ROC={h_metrics['auc']:.3f}  "
+                              f"AP={h_metrics['ap']:.3f}")
+                        pd.DataFrame([h_metrics]).to_csv(
+                            out_dir / "evaluation_hierarchical.csv", index=False)
+                        pd.DataFrame(hier_std_rows).to_csv(
+                            out_dir / "hierarchical_uncertainty.csv", index=False)
+                        print("  → saved evaluation_hierarchical.csv, "
+                              "hierarchical_uncertainty.csv")
+
             # --- Event-level Precision-Recall curves (3-day pre-event window) ---
             PRE_EVENT_WINDOW = 3
             print(f"\nGenerating event-level PR curves "
@@ -564,11 +619,15 @@ def main() -> None:
             pr_curves: list[tuple[str, np.ndarray, np.ndarray, float]] = []
             n_events_total = n_pos_windows = n_neg_windows = 0
 
-            for label, prob_dict in [
+            pr_model_list = [
                 ("Regional",               regional_prob_dict),
                 ("Per-station + fallback", fallback_prob_dict),
                 ("Blended (weighted)",     blended_prob_dict),
-            ]:
+            ]
+            if hier_prob_dict:
+                pr_model_list.append(("Hierarchical (Bayesian)", hier_prob_dict))
+
+            for label, prob_dict in pr_model_list:
                 yt, ys = evaluate_event_level(
                     prob_dict, station_2526_dates, PRE_EVENT_WINDOW
                 )
@@ -594,7 +653,7 @@ def main() -> None:
                     if (n_pos_windows + n_neg_windows) > 0 else 0.0
 
                 fig, ax = plt.subplots(figsize=(7, 5))
-                colors  = ['#1f77b4', '#ff7f0e', '#2ca02c']
+                colors  = ['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd']
                 for (label, prec, rec, ap), color in zip(pr_curves, colors):
                     ax.plot(rec, prec, color=color, linewidth=2,
                             label=f"{label}  (AP = {ap:.3f})")
