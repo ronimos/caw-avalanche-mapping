@@ -726,6 +726,134 @@ def main() -> None:
                       f"{grp['event_prob'].mean():>10.3f}  "
                       f"{det:>9}  {det/len(grp):>14.1%}")
 
+    # --- Operational threshold analysis ---
+    # For each station: set threshold = min(LOO event prob) = recall-maximizing.
+    # Count non-event DAYS (not windows) above that threshold to measure false alarm rate.
+    if loo_rows:
+        loo_df_op = pd.DataFrame(loo_rows)
+        trained   = loo_df_op[loo_df_op['trained'] & loo_df_op['event_prob'].notna()]
+        if not trained.empty:
+            print("\nRunning operational threshold analysis...")
+            op_rows: list[dict] = []
+
+            for pro_file in sorted(unique_pro_files):
+                sid = pro_file.stem
+                station_folds = trained[trained['station_id'] == sid]
+                if station_folds.empty:
+                    continue
+                model_path = models_dir / f"{sid}.joblib"
+                smet_file  = pro_file.with_suffix('.smet')
+                if not (model_path.exists() and smet_file.exists()):
+                    continue
+
+                T     = float(station_folds['event_prob'].min())
+                model, scaler = joblib.load(model_path)
+                daily = build_daily_features(pro_file, smet_file)
+                prob  = predict_proba_series(model, scaler, daily)
+
+                # Grace zone: ±(PRE_EVENT_WINDOW+1) around every known event
+                ev_dates: set[pd.Timestamp] = set()
+                for d_str in station_folds['test_date']:
+                    ev_dates.add(pd.Timestamp(d_str).normalize())
+                grace: set[pd.Timestamp] = set()
+                for ed in ev_dates:
+                    for delta in range(-(PRE_EVENT_WINDOW + 1), PRE_EVENT_WINDOW + 2):
+                        grace.add(ed + pd.Timedelta(days=delta))
+
+                non_event = prob[~prob.index.floor('D').isin(grace)].dropna()
+                fa_days   = int((non_event >= T).sum())
+                ne_days   = len(non_event)
+                fa_rate   = fa_days / ne_days if ne_days else float('nan')
+
+                op_rows.append({
+                    'station_id':        sid,
+                    'n_folds':           len(station_folds),
+                    'threshold':         round(T, 3),
+                    'false_alarm_days':  fa_days,
+                    'non_event_days':    ne_days,
+                    'false_alarm_rate':  round(fa_rate, 3) if not np.isnan(fa_rate) else float('nan'),
+                    'pct_ne_days':       round(fa_rate * 100, 1) if not np.isnan(fa_rate) else float('nan'),
+                })
+                print(f"  {sid}: T={T:.3f}  FA days={fa_days}/{ne_days}  "
+                      f"({fa_rate*100:.1f}%)")
+
+            if op_rows:
+                op_df = pd.DataFrame(op_rows).sort_values('false_alarm_rate').reset_index(drop=True)
+                op_df.to_csv(out_dir / "evaluation_operational.csv", index=False)
+                print(f"  → saved evaluation_operational.csv")
+
+                # ── Operational threshold figure ──────────────────────────────
+                def _tier_color(fa: float) -> str:
+                    if np.isnan(fa): return '#aaaaaa'
+                    if fa <= 0.10:   return '#2ca02c'
+                    if fa <= 0.25:   return '#ff7f0e'
+                    return '#d62728'
+
+                colors = [_tier_color(r) for r in op_df['false_alarm_rate']]
+                labels = [r.replace('_res', '') for r in op_df['station_id']]
+
+                fig, axes = plt.subplots(1, 2, figsize=(13, 6))
+
+                # Panel 1: false alarm days per station
+                ax1 = axes[0]
+                ax1.barh(range(len(op_df)), op_df['pct_ne_days'],
+                         color=colors, edgecolor='white', height=0.7)
+                ax1.axvline(10, color='black', linestyle='--', linewidth=1.2,
+                            label='10 % operational threshold')
+                ax1.set_yticks(range(len(op_df)))
+                ax1.set_yticklabels(labels, fontsize=9)
+                ax1.set_xlabel('False alarm rate  (% of non-event days)', fontsize=10)
+                ax1.set_title('False Alarm Rate at\nRecall-Maximizing Threshold', fontsize=11)
+                ax1.set_xlim(0, 108)
+                for i, (_, row) in enumerate(op_df.iterrows()):
+                    fa_pct = row['pct_ne_days'] if not np.isnan(row['pct_ne_days']) else 0
+                    ax1.text(min(fa_pct + 1.5, 105), i,
+                             f"T={row['threshold']:.3f}  {int(row['false_alarm_days'])} / "
+                             f"{int(row['non_event_days'])} days",
+                             va='center', fontsize=7.5, color='#333')
+                ax1.legend(fontsize=9, loc='lower right')
+                ax1.grid(axis='x', alpha=0.3)
+
+                # Panel 2: threshold vs false alarm rate
+                ax2 = axes[1]
+                for _, row in op_df.iterrows():
+                    if np.isnan(row['false_alarm_rate']): continue
+                    ax2.scatter(row['threshold'], row['pct_ne_days'],
+                                color=_tier_color(row['false_alarm_rate']),
+                                s=80 + row['n_folds'] * 30,
+                                zorder=3, edgecolors='white', linewidth=0.8)
+                    ax2.annotate(row['station_id'].replace('_res', ''),
+                                 (row['threshold'], row['pct_ne_days']),
+                                 textcoords='offset points', xytext=(5, 3),
+                                 fontsize=7.5, color='#333')
+                ax2.axhline(10, color='black', linestyle='--', linewidth=1.2,
+                            label='10% operational threshold')
+                ax2.set_xlabel('Recall-maximizing threshold\n'
+                               '(min event prob across LOO folds)', fontsize=10)
+                ax2.set_ylabel('False alarm rate  (% of non-event days)', fontsize=10)
+                ax2.set_title('Threshold vs False Alarm Rate\n'
+                              '(bubble size ∝ training folds)', fontsize=11)
+                ax2.set_xlim(-0.05, 1.05)
+                ax2.set_ylim(-3, 105)
+                from matplotlib.patches import Patch
+                ax2.legend(handles=[
+                    Patch(color='#2ca02c', label='Ready  (FA ≤ 10%)'),
+                    Patch(color='#ff7f0e', label='Marginal  (10–25%)'),
+                    Patch(color='#d62728', label='Not ready  (> 25%)'),
+                ], fontsize=8.5, loc='upper right')
+                ax2.grid(alpha=0.3)
+
+                plt.suptitle(
+                    'Operational Threshold Analysis — Per-Station Recall-Maximizing Thresholds\n'
+                    f'{SEASON} season  |  Threshold = min(event prob across LOO folds)',
+                    fontsize=11, y=1.01,
+                )
+                plt.tight_layout()
+                fig.savefig(str(out_dir / "operational_thresholds.png"),
+                            dpi=150, bbox_inches='tight')
+                plt.close(fig)
+                print(f"  → saved operational_thresholds.png")
+
     # --- Attach max forecast-window probability to each observation ---
     forecast_probs: list[float] = []
     for pf in matched_pro_files:

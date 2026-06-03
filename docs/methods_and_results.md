@@ -86,7 +86,7 @@ We applied three complementary evaluation frameworks, each suited to a different
 
 ### 3.5 Operational Threshold Tuning
 
-For each station we derived a recall-maximizing operational threshold by taking the minimum event window probability observed across all LOO folds. This threshold guarantees detection of every event the model has ever seen at that station, at the cost of some false alarms on non-event days. We then evaluated the false alarm rate — the fraction of non-event windows in the 2025–2026 season where the model exceeded that station-specific threshold — to quantify the operational cost of 100% recall. We defined a station as operationally viable when its false alarm rate fell at or below 10%, reflecting a practical tolerance of roughly one unnecessary alert per month in a 5-month winter season.
+For each station we derived a recall-maximizing operational threshold by taking the minimum event window probability observed across all LOO folds. This threshold guarantees detection of every event the model has seen at that station, at the cost of some false alarms on non-event days. We then counted the number of individual non-event days in the 2025–2026 season where the model exceeded that station-specific threshold, excluding a ±4-day grace zone around each observed event. We expressed this as a false alarm rate: false alarm days divided by total non-event days. We defined a station as operationally viable when its false alarm rate fell at or below 10%, reflecting a practical tolerance of roughly one unnecessary alert per month in a 5-month winter season.
 
 ---
 
@@ -186,35 +186,36 @@ The results confirm the framework's role as a decision-support tool: the pipelin
 
 ### 4.6 Operational Threshold Analysis
 
-We applied the recall-maximizing threshold to the 2025–2026 season predictions for each station and measured the resulting false alarm rate (Figure X; Table 6). The results reveal a clear three-tier structure.
+We applied the recall-maximizing threshold to the 2025–2026 season and counted individual non-event days where the model exceeded that threshold (Figure X; Table 6). The 149-day season provides 131–140 non-event days per station after removing ±4-day grace zones around observed events. The results reveal a clear three-tier structure.
 
 **Table 6. Operational threshold analysis — false alarm rate at recall-maximizing threshold.**
+*(Season: 2025–2026, 149 days. Non-event days exclude ±4-day grace zones around observed events.)*
 
-| Station | Training folds | Threshold | False alarm windows | False alarm rate | Season days flagged |
+| Station | Folds | Threshold | FA days | Non-event days | FA rate |
 |---|---|---|---|---|---|
-| 160942_res (E) | 1 | 1.000 | 0 | **0%** | 0% |
-| 164801_res (N) | 2 | 0.120 | 2 | **6%** | 7% |
-| 165202_res (E) | 1 | 0.006 | 8 | 23% | 18% |
-| 268603_res (S) | 3 | 0.478 | 13 | 38% | 33% |
-| 250224_res (W) | 2 | 0.013 | 15 | 43% | 36% |
-| 224102_res (E) | 2 | <0.001 | 16 | 50% | 46% |
-| 183741_res (N) | 1 | 0.001 | 18 | 51% | 45% |
-| 224101_res (N) | 1 | <0.001 | 20 | 57% | 46% |
-| 272401_res (N) | 1 | 0.156 | 23 | 66% | 38% |
-| 187363_res (S) | 1 | 0.086 | 26 | 74% | 43% |
-| 153203_res (S) | 3 | 0.173 | 27 | 77% | 58% |
-| 180343_res (S) | 2 | 0.906 | 28 | 82% | 66% |
-| 176522_res (E) | 1 | 0.739 | 34 | 97% | 69% |
+| 160942_res (E) | 1 | 1.000 | 0 | 140 | **0.0%** |
+| 164801_res (N) | 2 | 0.120 | 5 | 140 | **3.6%** |
+| 165202_res (E) | 1 | 0.006 | 22 | 140 | 15.7% |
+| 268603_res (S) | 3 | 0.478 | 42 | 139 | 30.2% |
+| 250224_res (W) | 2 | 0.013 | 49 | 140 | 35.0% |
+| 272401_res (N) | 1 | 0.156 | 56 | 140 | 40.0% |
+| 183741_res (N) | 1 | 0.001 | 62 | 140 | 44.3% |
+| 187363_res (S) | 1 | 0.086 | 62 | 140 | 44.3% |
+| 224102_res (E) | 2 | <0.001 | 58 | 131 | 44.3% |
+| 224101_res (N) | 1 | <0.001 | 67 | 140 | 47.9% |
+| 153203_res (S) | 3 | 0.173 | 85 | 140 | 60.7% |
+| 176522_res (E) | 1 | 0.739 | 98 | 140 | 70.0% |
+| 180343_res (S) | 2 | 0.906 | 97 | 138 | 70.3% |
 
-**Operationally ready (false alarm rate ≤ 10%).** Two stations meet the viability criterion. 160942_res achieves 0% false alarms: its single LOO fold produced an event window probability of 1.0, so the model must reach near-certainty before flagging — and never does so on non-event days in the 2025–2026 season. 164801_res (6% false alarm rate, 2 unnecessary alerts per season) is equally viable, with a threshold of 0.12 set by its worst LOO fold.
+**Operationally ready (false alarm rate ≤ 10%).** Two stations meet the viability criterion. 160942_res achieves 0 false alarm days: its single LOO fold produced an event window probability of 1.0, so the model must reach near-certainty before flagging — and it never does on any non-event day in the 2025–2026 season. 164801_res generates only 5 false alarm days out of 140 (3.6%), with a threshold of 0.12 set by its worst LOO fold. A forecaster at these two stations receives at most 5 unnecessary alerts across the full 5-month season.
 
-**Marginal (false alarm rate 10–25%).** 165202_res flags 18% of season days at a threshold of 0.006. Its worst LOO fold assigned only 0.6% probability to the event window, forcing such a low threshold that a significant fraction of non-event days exceed it. This station would require careful expert review of each alert rather than automated dispatch.
+**Marginal (false alarm rate 10–25%).** 165202_res flags 22 of 140 non-event days (15.7%) at a threshold of 0.006. Its worst LOO fold assigned only 0.6% probability to the event window, forcing such a low threshold that the model fires roughly one day in six throughout the season. This station warrants careful expert review of each alert rather than automated dispatch.
 
-**Not operationally ready (false alarm rate > 25%).** Ten stations fall into this tier. Notably, 180343_res and 176522_res had 100% LOO detection rates but generate 82% and 97% false alarm rates respectively. This confirms that their apparent perfect detection stems from the model predicting high probability nearly every day — not from genuine discrimination between event and non-event conditions. The operational analysis exposes this limitation in a way that the detection-rate metric alone does not.
+**Not operationally ready (false alarm rate > 25%).** Ten stations fall into this tier, ranging from 268603_res (42 days, 30.2%) to 176522_res and 180343_res (97–98 days, 70%). Notably, both 180343_res and 176522_res showed 100% LOO detection rates yet generate the highest false alarm rates in the dataset. This confirms that their apparent perfect detection stems from the model assigning high probability on nearly every day of the season — not from genuine discrimination between event and non-event conditions. The operational analysis exposes this limitation in a way the detection-rate metric alone cannot.
 
-**The scatter plot (Figure X, right panel) reveals the threshold–reliability relationship**: stations with high recall-maximizing thresholds (> 0.4) separate cleanly into two groups — those with low false alarms (160942, 164801) and those with high false alarms despite high thresholds (180343, 176522). The latter group shows that a high threshold does not guarantee operational reliability; the model must also maintain low background probabilities on non-event days. This distinction — between a discriminating high-threshold model and an always-high-threshold model — is only visible through the false alarm analysis.
+**The scatter plot (Figure X, right panel) shows the threshold–reliability relationship**: stations with a high recall-maximizing threshold (> 0.4) split into two groups — genuinely discriminating models with low false alarms (160942, 164801) and always-high models with elevated false alarms despite high thresholds (180343, 176522). A high threshold is necessary but not sufficient for operational reliability; the model must also maintain low background probabilities on non-event days.
 
-The operational analysis directly quantifies the data investment required to bring each station into the viable tier. At 164801_res (2 training events, 6% false alarm rate), one further season with a single additional event would likely push the threshold higher and reduce false alarms further. At stations currently below 0.01 threshold (224101, 224102, 183741), the model has essentially no signal to anchor the threshold, and multiple additional events spanning diverse meteorological conditions would be needed before operational deployment.
+The operational analysis directly quantifies the data investment each station needs to reach the viable tier. At 164801_res (2 training events, 3.6% false alarm rate), one further season with a single additional event would likely push the threshold higher and further reduce false alarms. At stations with thresholds below 0.01 (224101, 224102, 183741), the model has no signal to anchor the threshold, and multiple additional events spanning diverse meteorological conditions are needed before operational deployment.
 
 ---
 
