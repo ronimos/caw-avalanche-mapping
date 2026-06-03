@@ -69,6 +69,11 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
         'depth_lower_wl': 'max',
     })
 
+    # Combined whole-profile minimum stability index — the single cleanest
+    # "how weak is the weakest layer anywhere" signal, used by the reduced
+    # feature set to avoid the collinearity between the upper/lower zone mins.
+    zone_daily['sn38_min'] = zone_daily[['sn38_upper_min', 'sn38_lower_min']].min(axis=1)
+
     # Forward-fill zone features up to 7 days: when the snowpack is too thin
     # to resolve an upper/lower zone, carry the last known stability state
     # forward rather than dropping the day from classifier predictions.

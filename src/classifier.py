@@ -21,8 +21,10 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 from sklearn.preprocessing import StandardScaler
 
 
-# Full feature set — requires both .smet and .pro zone data.
-FEATURE_COLS = [
+# Full 9-feature set — retained for comparison / ablation, but no longer the
+# default.  With ~32 positive training days this set badly over-parameterizes
+# the model (≈3.5 events per predictor vs. the 10–20 rule of thumb).
+FULL_FEATURE_COLS = [
     'HS',             # total snow height (m)  — size proxy; varies with start-zone distance
     'HN24',           # new snow last 24 h (m) — loading signal
     'HN72',           # new snow last 3 days (m) — sustained loading
@@ -34,9 +36,26 @@ FEATURE_COLS = [
     'depth_lower_wl', # burial depth of weakest lower-zone layer (cm)
 ]
 
+# Reduced 5-feature set (default).  Each feature is physically distinct, chosen
+# to minimize collinearity given the small event count:
+#   - dropped HN72 (collinear with HN24)
+#   - dropped wet_flag (a threshold of TA_max — collinear)
+#   - dropped rain_sum (sparse; its signal overlaps TA_max)
+#   - collapsed sn38_upper/lower into a single whole-profile sn38_min
+REDUCED_FEATURE_COLS = [
+    'HS',             # total snow height (m)  — size / valley-reach proxy
+    'HN24',           # new snow last 24 h (m) — primary loading trigger
+    'TA_max',         # daily max air temp (°C) — wet vs dry mechanism
+    'sn38_min',       # min Sn38 across whole profile — weakest layer strength
+    'depth_lower_wl', # burial depth of weakest lower-zone layer (cm)
+]
+
+# Active feature set used for training and prediction.
+FEATURE_COLS = REDUCED_FEATURE_COLS
+
 # Fallback when zone features are unavailable on positive days (e.g. early
 # season with a thin snowpack that lacks reliable Sn38 values).
-SMET_ONLY_COLS = ['HS', 'HN24', 'HN72', 'rain_sum', 'TA_max', 'wet_flag']
+SMET_ONLY_COLS = ['HS', 'HN24', 'TA_max']
 
 
 def train_station(
@@ -94,14 +113,14 @@ def predict_proba_series(
     """
     Return a daily probability Series for a single station.
 
-    Core weather features (HS, HN24, HN72, rain_sum, TA_max, wet_flag) must be
-    non-NaN for a day to be predicted.  Zone features (sn38_*, depth_lower_wl)
-    that are NaN — e.g. on thin-snowpack days where no qualifying layers exist —
-    are imputed with the training mean (zero after StandardScaler), representing
+    Core weather features (HS, HN*, rain_sum, TA_max, wet_flag) must be non-NaN
+    for a day to be predicted.  Zone features (sn38_*, depth_lower_wl) that are
+    NaN — e.g. on thin-snowpack days where no qualifying layers exist — are
+    imputed with the training mean (zero after StandardScaler), representing
     neutral / average stability rather than silently dropping the day.
     """
     fitted_cols  = list(scaler.feature_names_in_)
-    zone_cols    = {'sn38_upper_min', 'sn38_lower_min', 'depth_lower_wl'}
+    zone_cols    = {'sn38_upper_min', 'sn38_lower_min', 'sn38_min', 'depth_lower_wl'}
     core_cols    = [c for c in fitted_cols if c not in zone_cols]
 
     X = daily_df.reindex(columns=fitted_cols).copy()
@@ -285,7 +304,36 @@ def train_regional(
         print(f"    → skipped (< {min_positives} positive days)")
         return None
 
-    return _fit(X_all, y_all)
+    best_C = _tune_C(X_all, y_all, n_pos)
+    return _fit(X_all, y_all, C=best_C)
+
+
+def _tune_C(X: pd.DataFrame, y: pd.Series, n_pos: int) -> float:
+    """
+    Select the L2 regularization strength C by stratified k-fold CV, scoring on
+    average precision (appropriate for the heavy class imbalance).  Falls back to
+    a strong fixed C when there are too few positives to cross-validate.
+    """
+    from sklearn.linear_model import LogisticRegressionCV
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.pipeline import make_pipeline
+
+    n_splits = min(5, n_pos)
+    if n_splits < 3:
+        return 0.1  # too few positives to CV — use strong fixed regularization
+
+    Cs  = [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]
+    cv  = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    clf = LogisticRegressionCV(
+        Cs=Cs, cv=cv, scoring='average_precision',
+        class_weight='balanced', max_iter=1000, random_state=42,
+    )
+    # Scale inside the CV to avoid leakage across folds
+    pipe = make_pipeline(StandardScaler(), clf)
+    pipe.fit(X, y)
+    best_C = float(pipe.named_steps['logisticregressioncv'].C_[0])
+    print(f"    tuned C = {best_C:g}  (stratified {n_splits}-fold, scoring=AP)")
+    return best_C
 
 
 def evaluate_regional(
@@ -399,17 +447,27 @@ def _fit(
     X_feat: pd.DataFrame,
     y: pd.Series,
     verbose: bool = True,
+    C: float = 0.1,
 ) -> tuple[LogisticRegression, StandardScaler]:
-    """Scale and fit a logistic regression; optionally print feature weights."""
+    """
+    Scale and fit an L2-regularized logistic regression; optionally print weights.
+
+    The default C=0.1 applies strong regularization — appropriate for per-station
+    models where only 1–2 positive samples are available and the data cannot
+    support a tuned penalty.  The regional model overrides C with a CV-tuned value.
+    """
     scaler   = StandardScaler()
     X_scaled = scaler.fit_transform(X_feat)
 
-    model = LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42)
+    model = LogisticRegression(
+        class_weight='balanced', max_iter=1000, random_state=42, C=C,
+    )
     model.fit(X_scaled, y)
 
     if verbose:
         coef_df = pd.Series(model.coef_[0], index=X_feat.columns).sort_values(
             key=abs, ascending=False
         )
-        print("    weights:", "  ".join(f"{f}:{w:+.2f}" for f, w in coef_df.items()))
+        print(f"    weights (C={C:g}):",
+              "  ".join(f"{f}:{w:+.2f}" for f, w in coef_df.items()))
     return model, scaler
