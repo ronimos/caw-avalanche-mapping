@@ -43,6 +43,7 @@ def train_station(
     daily_df: pd.DataFrame,
     event_dates: list[pd.Timestamp],
     min_positives: int = 2,
+    verbose: bool = True,
 ) -> tuple[LogisticRegression, StandardScaler] | None:
     """
     Train a logistic regression for a single station.
@@ -59,10 +60,12 @@ def train_station(
     y     = _make_labels(daily_df, event_dates)
     n_pos = int(y.sum())
     n_neg = int((y == 0).sum())
-    print(f"    samples={n_pos + n_neg}  pos={n_pos}  neg={n_neg}")
+    if verbose:
+        print(f"    samples={n_pos + n_neg}  pos={n_pos}  neg={n_neg}")
 
     if n_pos < min_positives:
-        print(f"    → skipped (< {min_positives} positive days)")
+        if verbose:
+            print(f"    → skipped (< {min_positives} positive days)")
         return None
 
     available = [c for c in FEATURE_COLS if c in daily_df.columns]
@@ -74,10 +77,12 @@ def train_station(
         X      = daily_df[col_set].copy()
         mask   = X.notna().all(axis=1) & y.notna()
         if y[mask].sum() >= min_positives:
-            print(f"    → training ({label})")
-            return _fit(X[mask], y[mask])
+            if verbose:
+                print(f"    → training ({label})")
+            return _fit(X[mask], y[mask], verbose=verbose)
 
-    print(f"    → skipped (< {min_positives} positives in both feature sets)")
+    if verbose:
+        print(f"    → skipped (< {min_positives} positives in both feature sets)")
     return None
 
 
@@ -393,16 +398,18 @@ def _make_labels(
 def _fit(
     X_feat: pd.DataFrame,
     y: pd.Series,
+    verbose: bool = True,
 ) -> tuple[LogisticRegression, StandardScaler]:
-    """Scale and fit a logistic regression; print feature weights."""
+    """Scale and fit a logistic regression; optionally print feature weights."""
     scaler   = StandardScaler()
     X_scaled = scaler.fit_transform(X_feat)
 
     model = LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42)
     model.fit(X_scaled, y)
 
-    coef_df = pd.Series(model.coef_[0], index=X_feat.columns).sort_values(
-        key=abs, ascending=False
-    )
-    print("    weights:", "  ".join(f"{f}:{w:+.2f}" for f, w in coef_df.items()))
+    if verbose:
+        coef_df = pd.Series(model.coef_[0], index=X_feat.columns).sort_values(
+            key=abs, ascending=False
+        )
+        print("    weights:", "  ".join(f"{f}:{w:+.2f}" for f, w in coef_df.items()))
     return model, scaler

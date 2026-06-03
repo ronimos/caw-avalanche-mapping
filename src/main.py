@@ -50,6 +50,94 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+PRE_EVENT_WINDOW = 3  # days before event counted as a "warning window"
+
+
+def _run_loo_folds(
+    station_id: str,
+    sims_root: Path,
+    all_events: list[tuple[pd.Timestamp, str]],
+) -> list[dict]:
+    """
+    Temporal leave-one-out CV for one station.
+
+    Events are sorted chronologically.  Fold i trains on events[0..i-1] and
+    tests on events[i].  Features are loaded from whichever season each event
+    belongs to, so the model always trains on data it could have seen in
+    real-time.
+
+    Returns a list of per-fold result dicts.
+    """
+    results: list[dict] = []
+    window_td = pd.Timedelta(days=PRE_EVENT_WINDOW)
+
+    # Grace zone: days within ±(window+1) of any known event (excluded from
+    # non-event probability estimation so nearby events don't contaminate it)
+    grace: set[pd.Timestamp] = set()
+    for ev_date, _ in all_events:
+        ed = ev_date.normalize()
+        for d in range(-(PRE_EVENT_WINDOW + 1), PRE_EVENT_WINDOW + 2):
+            grace.add(ed + pd.Timedelta(days=d))
+
+    for i in range(1, len(all_events)):
+        test_date, test_season = all_events[i]
+        train_evs  = all_events[:i]
+        train_dates = [ev[0] for ev in train_evs]
+
+        # Load test-season features
+        test_pro  = sims_root / test_season / f"{station_id}.pro"
+        test_smet = sims_root / test_season / f"{station_id}.smet"
+        if not (test_pro.exists() and test_smet.exists()):
+            continue
+        test_daily = build_daily_features(test_pro, test_smet)
+
+        # Concatenate training features across all seasons with training events
+        train_parts: list[pd.DataFrame] = []
+        for season in {ev[1] for ev in train_evs}:
+            pro  = sims_root / season / f"{station_id}.pro"
+            smet = sims_root / season / f"{station_id}.smet"
+            if pro.exists() and smet.exists():
+                df = build_daily_features(pro, smet)
+                if not df.empty:
+                    train_parts.append(df)
+        if not train_parts:
+            continue
+
+        train_daily = pd.concat(train_parts).sort_index()
+        train_daily = train_daily[~train_daily.index.duplicated(keep='first')]
+
+        fold: dict = {
+            'station_id':       station_id,
+            'n_train_events':   len(train_dates),
+            'test_date':        test_date.date(),
+            'test_season':      test_season,
+            'trained':          False,
+            'event_prob':       float('nan'),
+            'non_event_median': float('nan'),
+        }
+
+        fitted = train_station(train_daily, train_dates, verbose=False)
+        if fitted is not None:
+            model, scaler = fitted
+            prob = predict_proba_series(model, scaler, test_daily)
+
+            # Max probability in the pre-event window
+            w_start = (test_date - window_td).normalize()
+            w_end   = test_date.normalize()
+            idx_norm = prob.index.floor('D')
+            win = prob[(idx_norm >= w_start) & (idx_norm <= w_end)]
+            fold['event_prob']       = float(win.max()) if not win.dropna().empty else float('nan')
+            fold['trained']          = True
+
+            # Median non-event probability (background rate at this station)
+            non_grace = prob[~prob.index.floor('D').isin(grace)].dropna()
+            fold['non_event_median'] = float(non_grace.median()) if not non_grace.empty else float('nan')
+
+        results.append(fold)
+
+    return results
+
+
 def _load_observations(obs_dir: Path) -> pd.DataFrame:
     """
     Load all avalanches_<SEASON>.csv files from obs_dir, tag each row with
@@ -530,6 +618,113 @@ def main() -> None:
                 fig.savefig(str(pr_path), dpi=150)
                 plt.close(fig)
                 print(f"  → saved {pr_path}")
+
+    # --- Temporal LOO cross-validation + performance-by-events plot ---
+    print("\nRunning temporal LOO cross-validation...")
+
+    # Build per-station event list (all seasons, sorted chronologically, deduplicated)
+    station_all_events: dict[str, list[tuple[pd.Timestamp, str]]] = {}
+    for idx, (_, row) in enumerate(df_all.iterrows()):
+        pf = matched_pro_files[idx]
+        if pf is None:
+            continue
+        raw_date = pd.to_datetime(row.get('Date', ''), errors='coerce')
+        if pd.isna(raw_date):
+            continue
+        evs = station_all_events.setdefault(pf.stem, [])
+        entry = (raw_date.normalize(), row['source_season'])
+        if entry not in evs:
+            evs.append(entry)
+
+    for sid in station_all_events:
+        station_all_events[sid].sort(key=lambda x: x[0])
+
+    loo_rows: list[dict] = []
+    for pro_file in sorted(unique_pro_files):
+        sid = pro_file.stem
+        evs = station_all_events.get(sid, [])
+        if len(evs) < 2:
+            continue
+        folds = _run_loo_folds(sid, sims_root, evs)
+        loo_rows.extend(folds)
+        n_trained = sum(1 for f in folds if f['trained'])
+        print(f"  {sid}: {len(evs)} events → {len(folds)} folds  ({n_trained} trained)")
+
+    if loo_rows:
+        loo_df = pd.DataFrame(loo_rows)
+        loo_df.to_csv(out_dir / "evaluation_loo.csv", index=False)
+        print(f"  → saved evaluation_loo.csv  ({len(loo_df)} folds total)")
+
+        # ── Performance-by-events plot ─────────────────────────────────────
+        plot_df = loo_df[loo_df['trained'] & loo_df['event_prob'].notna()].copy()
+
+        if not plot_df.empty:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+            # Jitter x slightly for visibility
+            rng = np.random.default_rng(42)
+            jitter   = rng.uniform(-0.12, 0.12, size=len(plot_df))
+            x        = plot_df['n_train_events'].to_numpy(dtype=float) + jitter
+            ep       = plot_df['event_prob'].to_numpy(dtype=float)
+            detected = ep >= 0.5
+
+            ax.scatter(x[detected],  ep[detected],
+                       color='#2ca02c', s=70, alpha=0.8, zorder=3,
+                       label='Detected (prob ≥ 0.5)')
+            ax.scatter(x[~detected], ep[~detected],
+                       color='#d62728', s=70, alpha=0.8, zorder=3,
+                       label='Missed (prob < 0.5)')
+
+            # Mean per n_train
+            mean_by_n = plot_df.groupby('n_train_events')['event_prob'].mean()
+            ax.plot(mean_by_n.index.to_numpy(dtype=float), mean_by_n.to_numpy(dtype=float),
+                    'k--o', linewidth=1.8, markersize=7, zorder=4, label='Mean')
+
+            # Non-event background reference
+            non_event_ref = plot_df['non_event_median'].median()
+            if not pd.isna(non_event_ref):
+                ax.axhline(non_event_ref, color='steelblue', linestyle=':',
+                           linewidth=1.2,
+                           label=f'Median non-event prob ({non_event_ref:.3f})')
+
+            ax.axhline(0.5, color='grey', linestyle='--', linewidth=1,
+                       alpha=0.6, label='0.5 threshold')
+
+            # Fold counts per n_train
+            for n, cnt in plot_df.groupby('n_train_events').size().items():
+                ax.text(float(n), -0.06, f'n={cnt}', ha='center',
+                        fontsize=9, color='#555', transform=ax.get_xaxis_transform())
+
+            ax.set_xlabel('Number of training events', fontsize=12)
+            ax.set_ylabel(f'Event window probability\n'
+                          f'(max prob in {PRE_EVENT_WINDOW} days before event)',
+                          fontsize=11)
+            ax.set_title(
+                'Per-Station Classifier Performance vs. Training Data Size\n'
+                'Temporal LOO cross-validation — all stations, both seasons',
+                fontsize=11,
+            )
+            n_max = int(plot_df['n_train_events'].max())
+            ax.set_xlim(0.5, n_max + 0.5)
+            ax.set_ylim(-0.02, 1.02)
+            ax.set_xticks(range(1, n_max + 1))
+            ax.legend(fontsize=9, loc='upper left')
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            perf_path = out_dir / "loo_performance_by_events.png"
+            fig.savefig(str(perf_path), dpi=150)
+            plt.close(fig)
+            print(f"  → saved {perf_path}")
+
+            # Print summary by n_train
+            print("\n  LOO summary by number of training events:")
+            print(f"  {'n_train':>8}  {'folds':>6}  {'mean_prob':>10}  "
+                  f"{'detected':>9}  {'detection_rate':>14}")
+            for n, grp in plot_df.groupby('n_train_events'):
+                det = (grp['event_prob'] >= 0.5).sum()
+                print(f"  {n:>8}  {len(grp):>6}  "
+                      f"{grp['event_prob'].mean():>10.3f}  "
+                      f"{det:>9}  {det/len(grp):>14.1%}")
 
     # --- Attach max forecast-window probability to each observation ---
     forecast_probs: list[float] = []
