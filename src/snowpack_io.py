@@ -11,6 +11,7 @@ Public API:
   find_nearest_pro         (lat, lon) → nearest .pro Path
 """
 
+import functools
 import math
 import re
 from pathlib import Path
@@ -18,6 +19,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+# Aspect letter → numeric suffix appended to base station ID in .pro filenames.
+# Flat terrain has no suffix (empty string).
+ASPECT_SUFFIX: dict[str, str] = {
+    'N': '1', 'E': '2', 'S': '3', 'W': '4',
+}
 
 
 # ── .pro parsing ──────────────────────────────────────────────────────────────
@@ -185,13 +192,29 @@ def extract_pro_coordinates(pro_file: Path) -> tuple[float, float] | None:
     return (lat, lon) if lat is not None and lon is not None else None
 
 
-def find_nearest_pro(lat: float, lon: float, data_dir: Path) -> Path | None:
+def find_nearest_pro(
+    lat: float,
+    lon: float,
+    sim_dir: Path,
+    aspect: str = '',
+    stations_csv: Path | None = None,
+) -> Path | None:
     """
-    Return the .pro file in data_dir whose header coordinates are closest
-    to (lat, lon). Returns None if no .pro files with parseable coords exist.
+    Return the .pro file in sim_dir that best matches (lat, lon, aspect).
+
+    When stations_csv is provided (preferred): find the nearest base station
+    by haversine distance, then return the aspect-specific file
+    ({base_id}{suffix}_res.pro).  Falls back to the flat file
+    ({base_id}_res.pro) when the aspect variant is missing.
+
+    When stations_csv is not provided: scan all .pro file headers for
+    coordinates and return the nearest file (aspect-unaware legacy behaviour).
     """
+    if stations_csv is not None and stations_csv.exists():
+        return _find_nearest_pro_from_csv(lat, lon, aspect, sim_dir, stations_csv)
+
     best_file, best_dist = None, float('inf')
-    for pro_file in data_dir.glob('*.pro'):
+    for pro_file in sim_dir.glob('*.pro'):
         coords = extract_pro_coordinates(pro_file)
         if coords is None:
             continue
@@ -199,6 +222,47 @@ def find_nearest_pro(lat: float, lon: float, data_dir: Path) -> Path | None:
         if dist < best_dist:
             best_dist, best_file = dist, pro_file
     return best_file
+
+
+@functools.lru_cache(maxsize=4)
+def _load_stations(csv_path: Path) -> pd.DataFrame:
+    return pd.read_csv(csv_path)
+
+
+def _find_nearest_pro_from_csv(
+    lat: float,
+    lon: float,
+    aspect: str,
+    sim_dir: Path,
+    stations_csv: Path,
+) -> Path | None:
+    """
+    Find nearest base station from CSV that has simulation files in sim_dir,
+    then return the aspect-specific .pro path.
+
+    Walks stations in ascending distance order so that stations without any
+    .pro files in sim_dir are skipped transparently.
+    """
+    stations = _load_stations(stations_csv)
+    suffix   = ASPECT_SUFFIX.get(str(aspect).strip().upper(), '')
+
+    dists = stations.apply(
+        lambda r: _haversine_km(lat, lon, float(r['Latitude']), float(r['Longitude'])),
+        axis=1,
+    )
+
+    for idx in dists.argsort():
+        base_id = str(stations.loc[idx, 'Folder_Name'])
+        # Prefer exact aspect match, then flat, then any variant for this station
+        for stem in [f"{base_id}{suffix}_res", f"{base_id}_res"]:
+            path = sim_dir / f"{stem}.pro"
+            if path.exists():
+                return path
+        matches = sorted(sim_dir.glob(f"{base_id}*_res.pro"))
+        if matches:
+            return matches[0]
+
+    return None
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

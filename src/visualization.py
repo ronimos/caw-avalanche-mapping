@@ -83,6 +83,7 @@ def plot_interactive_stability(
     output_path: Path,
     station_id: str = "",
     event_dates: list[pd.Timestamp] | None = None,
+    test_dates: list[pd.Timestamp] | None = None,
     prob_series: pd.Series | None = None,
     daily_df: pd.DataFrame | None = None,
     forecast_date: pd.Timestamp | None = None,
@@ -98,7 +99,8 @@ def plot_interactive_stability(
     Panel 3 — Probability (optional, requires prob_series): daily avalanche
                probability with threshold lines at 50 % / 65 % / 80 % / 95 %.
 
-    Vertical dashed red lines mark each date in event_dates on all panels.
+    Vertical dashed red lines mark training event dates on all panels.
+    Vertical dashed blue lines mark held-out test event dates on all panels.
     A green highlight band marks the forecast window (±1/+2 days around
     forecast_date) with a dashed "now" line on all panels.
 
@@ -106,7 +108,8 @@ def plot_interactive_stability(
         df:            Output of parse_snow_data().
         output_path:   Destination HTML file.
         station_id:    Label shown in the chart title.
-        event_dates:   Avalanche occurrence dates to mark on all panels.
+        event_dates:   Training avalanche dates (red lines).
+        test_dates:    Held-out test avalanche dates (blue lines).
         prob_series:   Daily probability Series (index=date, values 0–1).
         daily_df:      Output of build_daily_features() — used for loading panel.
         forecast_date: Reference date for the forecast window highlight.
@@ -314,7 +317,7 @@ def plot_interactive_stability(
             range=[0, 1], row=prob_row, col=1,
         )
 
-    # ── Avalanche event markers ───────────────────────────────────────────────
+    # ── Train event markers (red) ─────────────────────────────────────────────
     for edate in (event_dates or []):
         for r in range(1, n_rows + 1):
             fig.add_shape(
@@ -329,6 +332,24 @@ def plot_interactive_stability(
             text=edate.strftime('%b %d'),
             showarrow=False, xanchor='left',
             font=dict(color='red', size=11),
+            row=strat_row, col=1,
+        )
+
+    # ── Test event markers (blue, held-out) ───────────────────────────────────
+    for edate in (test_dates or []):
+        for r in range(1, n_rows + 1):
+            fig.add_shape(
+                type='line',
+                x0=edate, x1=edate, y0=0, y1=1,
+                yref='y domain',
+                line=dict(color='royalblue', width=1.5, dash='dot'),
+                row=r, col=1,
+            )
+        fig.add_annotation(
+            x=edate, y=0.88, yref='y domain',
+            text=edate.strftime('%b %d') + ' (test)',
+            showarrow=False, xanchor='left',
+            font=dict(color='royalblue', size=11),
             row=strat_row, col=1,
         )
 

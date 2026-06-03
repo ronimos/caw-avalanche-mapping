@@ -59,12 +59,20 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
         smet_daily = smet_daily.rename(columns={'rain_rate': 'rain_sum'})
     if 'TA' in smet_daily.columns:
         smet_daily = smet_daily.rename(columns={'TA': 'TA_max'})
+    if 'TA_max' in smet_daily.columns:
+        # 1 = above-freezing day (wet-avalanche regime), 0 = cold/dry
+        smet_daily['wet_flag'] = (smet_daily['TA_max'] > 0).astype(float)
 
     zone_daily = zone_df.resample('D').agg({  # type: ignore[arg-type]
         'sn38_upper_min': 'min',
         'sn38_lower_min': 'min',
         'depth_lower_wl': 'max',
     })
+
+    # Forward-fill zone features up to 7 days: when the snowpack is too thin
+    # to resolve an upper/lower zone, carry the last known stability state
+    # forward rather than dropping the day from classifier predictions.
+    zone_daily = zone_daily.ffill(limit=7)
 
     return smet_daily.join(zone_daily, how='outer')
 
