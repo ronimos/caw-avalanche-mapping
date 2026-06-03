@@ -49,23 +49,32 @@ Keep station marker as the primary map element; add debris coordinates, distance
 
 ### Q2 — How do we show model confidence tier?
 
-We discussed three visual channels. The current map uses fill color for probability, so confidence needs a separate channel:
+The current map uses fill color for probability, so confidence needs a separate channel.
 
-**Option A: Fill opacity** *(preferred based on discussion)*
-- Ready: `fillOpacity = 0.90` — vivid, full signal
-- Marginal: `fillOpacity = 0.55`
-- Not ready: `fillOpacity = 0.25` — washed out
+**Option A: Fill opacity + vivid probability-colored border** *(preferred)*
+- **Border (stroke):** probability color, full opacity, thicker line (e.g. weight 3) — carries the risk signal and stays vivid at every confidence tier
+- **Fill opacity:** confidence tier
+  - Ready: `fillOpacity = 0.90` — solid center
+  - Marginal: `fillOpacity = 0.55`
+  - Not ready: `fillOpacity = 0.25` — pale center, but ring still bold
 
-Reads naturally: a pale red circle = "model says high risk but we don't trust this station's model yet." Vivid green = "low risk and we trust that." Two independent channels (color = what, opacity = how much to trust it).
+Refinement of the original opacity-only idea. The concern with opacity alone: at `fillOpacity ≤ 0.55` the probability color washes out and becomes hard to read or compare against neighboring stations — which defeats the purpose, since a forecaster scanning for areas of concern needs the risk color legible *regardless* of station grade. Promoting the **border to the primary probability carrier** keeps risk vivid everywhere; fill opacity then layers confidence inside without suppressing the risk signal.
 
-**Option B: Marker size**
+Reads as: a bold red ring with a pale red center = "high concern here, but the model is unproven at this station." A bold red ring with a solid red center = "high concern, and we trust it." The ring color is directly comparable across all stations. Two genuinely independent channels (border color = risk, fill opacity = confidence).
+
+*Implementation note:* the current map already uses stroke as a subtle same-family outline. This option promotes stroke to the primary probability carrier and demotes fill to secondary. Worth confirming with Doug that this reads cleanly rather than looking like an accidental double-encoding.
+
+**Option B: Fill opacity alone**
+Original idea — probability as fill color, confidence as fill opacity, no special border. Simpler, but suffers the wash-out problem above at low confidence.
+
+**Option C: Marker size**
 - Ready: radius 13, Not ready: radius 7
 Simple but conflates "importance" with "confidence" in a way that may mislead.
 
-**Option C: Icon shape** (circle / diamond / square)
+**Option D: Icon shape** (circle / diamond / square)
 Visually distinct but hard to implement cleanly in Folium and may be unfamiliar to forecast users.
 
-**Doug's question:** Which encoding is clearest in your operational workflow? Do you read map opacity intuitively, or would a shape distinction or legend badge be more obvious?
+**Doug's question:** Does the bold-ring / faded-fill encoding read intuitively to you — risk in the ring, confidence in the fill? Or would a shape distinction or legend badge be more obvious in your workflow?
 
 ---
 
@@ -103,14 +112,15 @@ This connects directly to Q3: if we use the regional model for unobserved statio
 
 ## Visual Channel Summary
 
-| Channel | Currently used for | Proposed additional use |
+| Channel | Currently used for | Proposed use |
 |---|---|---|
-| Fill color | Forecast probability | — (keep) |
-| Fill opacity | — (always 0.88) | Model confidence tier |
-| Marker radius | — (always 10) | Possibly size by confidence |
-| Marker shape | — (always circle) | Possibly tier encoding |
-| Stroke/border | Subtle outline | Could encode trained vs regional |
-| Layer toggle | Base map selection | Could separate debris vs station markers |
+| Fill color | Forecast probability | Keep (or move to border — see Q2) |
+| Border color | Subtle same-family outline | **Primary probability carrier** (vivid, full opacity) |
+| Fill opacity | — (always 0.88) | **Model confidence tier** |
+| Border weight | thin | Thicker to make probability ring prominent |
+| Marker radius | — (always 10) | Possibly size by confidence (Q2 Option C) |
+| Marker shape | — (always circle) | Possibly tier encoding (Q2 Option D) |
+| Layer toggle | Base map selection | Separate debris vs station markers (Q1) |
 
 ---
 
@@ -129,7 +139,7 @@ This connects directly to Q3: if we use the regional model for unobserved statio
 - The current map shows **station locations**, not debris/runout locations. This is a correction from the original document.
 - Probability color (current) stays — no changes to the risk scale itself.
 - Tooltip and click-to-open-stability-plot must be preserved in any redesign, on all active layers.
-- Fill opacity is the leading candidate for confidence tier encoding.
+- Leading encoding for confidence: **vivid probability-colored border (risk) + fill opacity (confidence)**. The border keeps the risk color legible and comparable across stations even when low confidence fades the fill — opacity alone would wash out the risk signal at the marginal/not-ready tiers.
 - Layer toggles (already present for base maps) are the preferred way to add debris locations and other overlays without cluttering the default view.
 - The distinction between "trained per-station model" and "regional fallback" matters operationally and should be visually clear, not buried in a tooltip.
 - The "always-on" model problem (180343, 176522 showed 100% LOO detection but 70% false alarm rate) means a high forecast probability at a non-ready station should not carry the same visual weight as the same probability at a ready station — exactly what opacity encoding addresses.
