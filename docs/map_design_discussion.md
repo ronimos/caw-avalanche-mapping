@@ -7,7 +7,9 @@
 
 ## Context
 
-The current avalanche map (`output/avalanche_map.html`) shows one circle marker per observation record. Marker color encodes forecast probability (gray → green → gold → orange → red → dark red). Clicking a marker opens the station's stability plot. Hovering shows a tooltip.
+The current avalanche map (`output/avalanche_map.html`) shows one circle marker per matched SNOWPACK **station** — not per observation record. Marker color encodes the forecast probability at that station (gray → green → gold → orange → red → dark red). Clicking a marker opens the station's stability plot. Hovering shows a tooltip with observation details.
+
+**Tooltip and click-to-open-stability-plot must be preserved in any redesign.**
 
 We now have two additional pieces of information that should be communicated visually but are not yet:
 
@@ -24,19 +26,24 @@ We now have two additional pieces of information that should be communicated vis
 
 ### Q1 — What should a forecaster see on the map?
 
-**Option A: Show debris/runout locations only (current)**
-Markers sit where the avalanche was observed — valley floor or road crossing. This is where the hazard manifests and where AKAH field staff reported it. Operationally intuitive: the marker is at the place of concern.
+**Current behavior: Station locations only**
+Markers sit at the virtual SNOWPACK station on the slope above the valley. The probability color reflects conditions at that slope. Debris/runout locations are not shown.
 
-**Option B: Show station locations only**
-Markers sit at the virtual SNOWPACK station on the slope above. This is where the model runs and the probability is computed. More honest about model geography, but disconnects from where people are affected.
+**Option A: Add debris/runout locations as a separate layer (toggleable)**
+Show observation markers at the valley-floor/road locations where AKAH staff reported the event. This is where the hazard manifests and where people are exposed. Keep station markers as the probability layer. Forecasters can toggle each layer independently — turning on debris locations for exposure context, turning off clutter when not needed. Tooltip and click-to-open remain on both marker types.
 
-**Option C: Show both, linked**
-A small station marker on the slope connected by a thin line to the debris marker in the valley. Shows the full chain: where the model lives → where the hazard reaches. More informative but potentially cluttered, especially where many events cluster near the same valley section.
+**Option B: Replace station markers with debris markers**
+Move the probability color to the debris location. More intuitive for field staff (marker is at the place of concern), but severs the visual link to the slope driving the model.
 
-**Option D: Debris marker with station information in tooltip**
-Keep debris location as the primary marker; add station coordinates, distance, and aspect to the hover tooltip. Lightweight — no extra map geometry.
+**Option C: Show both, linked, as a combined default layer**
+A station marker on the slope with a thin line connecting to the debris marker in the valley. Shows the full chain: where the model runs → where the hazard reaches. Informative but potentially cluttered where multiple events share a station. Could also be offered as a toggleable layer.
 
-**Doug's question:** When you look at the map operationally, do you want to see where the avalanche ended up (to assess exposure) or where the slope is (to understand the snowpack)?
+**Option D: Debris location in tooltip only**
+Keep station marker as the primary map element; add debris coordinates, distance from station, and observer notes to the hover tooltip. Lightweight — no extra map geometry.
+
+**Layer toggle note:** Options A and C lend themselves naturally to Folium layer toggles, which already exist on the map for base layers. Adding "Debris locations" as a toggleable overlay avoids clutter while keeping the information available. Tooltip and click behavior must be preserved on all active layers.
+
+**Doug's question:** When you open the map operationally, is your first instinct to locate the slope (to reason about snowpack) or the valley floor (to assess exposure and community risk)?
 
 ---
 
@@ -119,8 +126,10 @@ This connects directly to Q3: if we use the regional model for unobserved statio
 
 ## Notes from the Discussion So Far
 
+- The current map shows **station locations**, not debris/runout locations. This is a correction from the original document.
 - Probability color (current) stays — no changes to the risk scale itself.
+- Tooltip and click-to-open-stability-plot must be preserved in any redesign, on all active layers.
 - Fill opacity is the leading candidate for confidence tier encoding.
+- Layer toggles (already present for base maps) are the preferred way to add debris locations and other overlays without cluttering the default view.
 - The distinction between "trained per-station model" and "regional fallback" matters operationally and should be visually clear, not buried in a tooltip.
-- The "always-on" model problem (180343, 176522 showed 100% LOO detection but 82–97% false alarms) means that a high forecast probability at a non-ready station should not carry the same visual weight as the same probability at a ready station — exactly the problem opacity encoding addresses.
-- The map currently shows observation debris locations. That may be the right default since that is where AKAH staff observed and reported hazard.
+- The "always-on" model problem (180343, 176522 showed 100% LOO detection but 70% false alarm rate) means a high forecast probability at a non-ready station should not carry the same visual weight as the same probability at a ready station — exactly what opacity encoding addresses.
