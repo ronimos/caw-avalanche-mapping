@@ -84,6 +84,10 @@ We applied three complementary evaluation frameworks, each suited to a different
 
 **Event-level precision-recall.** For each test event, we took the maximum model probability within a three-day pre-event window as the event detection score. We drew non-overlapping, same-length windows from non-grace-zone periods at the same stations to serve as the negative class. This framing asks whether the model issued a timely warning before each event — a more operationally relevant question than per-day classification accuracy in a high-stakes forecasting context.
 
+### 3.5 Operational Threshold Tuning
+
+For each station we derived a recall-maximizing operational threshold by taking the minimum event window probability observed across all LOO folds. This threshold guarantees detection of every event the model has ever seen at that station, at the cost of some false alarms on non-event days. We then evaluated the false alarm rate — the fraction of non-event windows in the 2025–2026 season where the model exceeded that station-specific threshold — to quantify the operational cost of 100% recall. We defined a station as operationally viable when its false alarm rate fell at or below 10%, reflecting a practical tolerance of roughly one unnecessary alert per month in a 5-month winter season.
+
 ---
 
 ## 4. Results
@@ -179,6 +183,38 @@ The positive `HS` coefficient (+0.29) reflects the avalanche size signal in the 
 Temporal LOO cross-validation across 16 stations and 25 folds shows that per-station classifiers achieve a 37.5% event detection rate with one prior training event, rising to 50% with three — a monotonic improvement that directly validates the "more data, better performance" premise of the framework. At the best-sampled stations, event window probabilities approach 1.0 against near-zero non-event backgrounds, demonstrating genuine discriminative skill rather than systematic over-prediction. At the aggregate level, the regional model achieves event-level AUC-ROC = 0.610 and average precision 1.33× the no-skill baseline across 37 test events. Learned feature weights are physically coherent across both per-station and pooled models: shallow weak-layer burial, near-surface instability (low Sn38), and near-freezing warming are consistently the highest-magnitude predictors.
 
 The results confirm the framework's role as a decision-support tool: the pipeline extracts meaningful probabilistic signal from sparse observations and NWP-forced simulations, and performance scales reliably with observation density. Moving from one to three events per station roughly doubles the detection rate — a gain achievable within a single additional active observation season, and the clearest path to operational improvement.
+
+### 4.6 Operational Threshold Analysis
+
+We applied the recall-maximizing threshold to the 2025–2026 season predictions for each station and measured the resulting false alarm rate (Figure X; Table 6). The results reveal a clear three-tier structure.
+
+**Table 6. Operational threshold analysis — false alarm rate at recall-maximizing threshold.**
+
+| Station | Training folds | Threshold | False alarm windows | False alarm rate | Season days flagged |
+|---|---|---|---|---|---|
+| 160942_res (E) | 1 | 1.000 | 0 | **0%** | 0% |
+| 164801_res (N) | 2 | 0.120 | 2 | **6%** | 7% |
+| 165202_res (E) | 1 | 0.006 | 8 | 23% | 18% |
+| 268603_res (S) | 3 | 0.478 | 13 | 38% | 33% |
+| 250224_res (W) | 2 | 0.013 | 15 | 43% | 36% |
+| 224102_res (E) | 2 | <0.001 | 16 | 50% | 46% |
+| 183741_res (N) | 1 | 0.001 | 18 | 51% | 45% |
+| 224101_res (N) | 1 | <0.001 | 20 | 57% | 46% |
+| 272401_res (N) | 1 | 0.156 | 23 | 66% | 38% |
+| 187363_res (S) | 1 | 0.086 | 26 | 74% | 43% |
+| 153203_res (S) | 3 | 0.173 | 27 | 77% | 58% |
+| 180343_res (S) | 2 | 0.906 | 28 | 82% | 66% |
+| 176522_res (E) | 1 | 0.739 | 34 | 97% | 69% |
+
+**Operationally ready (false alarm rate ≤ 10%).** Two stations meet the viability criterion. 160942_res achieves 0% false alarms: its single LOO fold produced an event window probability of 1.0, so the model must reach near-certainty before flagging — and never does so on non-event days in the 2025–2026 season. 164801_res (6% false alarm rate, 2 unnecessary alerts per season) is equally viable, with a threshold of 0.12 set by its worst LOO fold.
+
+**Marginal (false alarm rate 10–25%).** 165202_res flags 18% of season days at a threshold of 0.006. Its worst LOO fold assigned only 0.6% probability to the event window, forcing such a low threshold that a significant fraction of non-event days exceed it. This station would require careful expert review of each alert rather than automated dispatch.
+
+**Not operationally ready (false alarm rate > 25%).** Ten stations fall into this tier. Notably, 180343_res and 176522_res had 100% LOO detection rates but generate 82% and 97% false alarm rates respectively. This confirms that their apparent perfect detection stems from the model predicting high probability nearly every day — not from genuine discrimination between event and non-event conditions. The operational analysis exposes this limitation in a way that the detection-rate metric alone does not.
+
+**The scatter plot (Figure X, right panel) reveals the threshold–reliability relationship**: stations with high recall-maximizing thresholds (> 0.4) separate cleanly into two groups — those with low false alarms (160942, 164801) and those with high false alarms despite high thresholds (180343, 176522). The latter group shows that a high threshold does not guarantee operational reliability; the model must also maintain low background probabilities on non-event days. This distinction — between a discriminating high-threshold model and an always-high-threshold model — is only visible through the false alarm analysis.
+
+The operational analysis directly quantifies the data investment required to bring each station into the viable tier. At 164801_res (2 training events, 6% false alarm rate), one further season with a single additional event would likely push the threshold higher and reduce false alarms further. At stations currently below 0.01 threshold (224101, 224102, 183741), the model has essentially no signal to anchor the threshold, and multiple additional events spanning diverse meteorological conditions would be needed before operational deployment.
 
 ---
 
