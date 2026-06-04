@@ -121,7 +121,7 @@ The classifiers use a reduced five-feature daily set (selected to limit overfitt
 
 | File | Contents |
 |---|---|
-| `avalanche_map.html` | Folium forecast map; click markers for stability plots |
+| `avalanche_map.html` | Folium forecast map; click markers for stability plots. Includes a date slider — scrub through the season to watch each station's probability evolve |
 | `assets/<SEASON>/stability_*.html` | Per-station Plotly stability charts |
 | `evaluation_{regional,blended,hierarchical}.csv` | Aggregate model metrics |
 | `evaluation_loo.csv` | Temporal leave-one-out per-fold results |

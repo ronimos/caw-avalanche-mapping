@@ -926,10 +926,17 @@ def main() -> None:
             )
     df_all['forecast_prob'] = forecast_probs
 
+    # Station id per observation + daily probability series keyed by station id,
+    # so the map can offer a date slider that recolours markers per date.
+    df_all['station_id'] = [pf.stem if pf is not None else None
+                            for pf in matched_pro_files]
+    prob_by_station = {pf.stem: s for pf, s in prob_series_dict.items()}
+
     # --- Generate the map ---
     map_path = out_dir / "avalanche_map.html"
     print(f"\nGenerating map → {map_path}")
-    create_avalanche_map(df_all, map_path, forecast_date=forecast_date)
+    create_avalanche_map(df_all, map_path, forecast_date=forecast_date,
+                         prob_by_station=prob_by_station)
 
     print("\nDone.")
     print(f"Open {map_path} and click any marker to view its nearest station's stability.")

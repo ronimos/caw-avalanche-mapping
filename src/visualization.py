@@ -407,11 +407,23 @@ def plot_interactive_stability(
 
 # ── map ───────────────────────────────────────────────────────────────────────
 
+def _prob_to_colors(p: float | None) -> tuple[str, str]:
+    """Map a probability to (fill, stroke) colours — mirrors the map's JS scale."""
+    if p is None or (isinstance(p, float) and math.isnan(p)):
+        return '#808080', '#505050'
+    if p >= 0.95: return '#7b0000', '#3d0000'
+    if p >= 0.80: return '#d62728', '#8b0000'
+    if p >= 0.65: return '#ff7f0e', '#b35a00'
+    if p >= 0.50: return '#e6c200', '#9e8600'
+    return '#2ca02c', '#1a6b1a'
+
+
 def create_avalanche_map(
     df: pd.DataFrame,
     output_path: Path,
     target_url: str = "stability_analysis.html",
     forecast_date: pd.Timestamp | None = None,
+    prob_by_station: dict[str, pd.Series] | None = None,
 ) -> None:
     """
     Creates a Folium map with circle markers for each avalanche observation.
@@ -427,13 +439,19 @@ def create_avalanche_map(
     Hovering shows name, date, aspect, elevation, size, and remarks.
     Clicking opens the linked stability HTML in a new tab.
 
+    When `prob_by_station` is supplied, the map also gains a date slider
+    (TimestampedGeoJson): scrubbing through the season recolours each marker by
+    its station's probability on that date, so the user can watch risk evolve.
+
     Args:
         df:            Must contain Latitude, Longitude, Placemark Name columns,
                        and optionally Aspect, date, Elevation (M), Size, Remarks,
-                       target_url, forecast_prob.
+                       target_url, forecast_prob, station_id.
         output_path:   Destination HTML file.
         target_url:    Fallback URL when df has no target_url column.
         forecast_date: Reference date shown in the map legend.
+        prob_by_station: station_id → daily probability Series. Enables the date
+                       slider; rows are matched to a series via the station_id column.
     """
     if 'target_url' not in df.columns:
         df = df.copy()
@@ -601,6 +619,44 @@ def create_avalanche_map(
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
+
+    # ── Date slider: recolour markers by each station's daily probability ─────
+    if prob_by_station and 'station_id' in df.columns:
+        from folium.plugins import TimestampedGeoJson
+
+        ts_features: list[dict] = []
+        for _, row in df.iterrows():
+            series = prob_by_station.get(row.get('station_id'))
+            if series is None:
+                continue
+            clean = series.dropna()
+            for ts, p in clean.items():
+                fill, stroke = _prob_to_colors(float(p))
+                ts_features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Point",
+                                 "coordinates": [row['Longitude'], row['Latitude']]},
+                    "properties": {
+                        "times": [pd.Timestamp(ts).strftime('%Y-%m-%d')],
+                        "icon": "circle",
+                        "iconstyle": {
+                            "fillColor": fill, "color": stroke,
+                            "fillOpacity": 0.85, "weight": 1.5, "radius": 8,
+                        },
+                        "popup": (f"<b>{row['Placemark Name']}</b><br>"
+                                  f"{pd.Timestamp(ts).strftime('%b %d, %Y')}<br>"
+                                  f"Prob: {float(p) * 100:.0f}%"),
+                    },
+                })
+
+        if ts_features:
+            TimestampedGeoJson(
+                {"type": "FeatureCollection", "features": ts_features},
+                period="P1D", duration="P1D", transition_time=150,
+                auto_play=False, loop=False, max_speed=15,
+                date_options="YYYY-MM-DD", time_slider_drag_update=True,
+                add_last_point=False,
+            ).add_to(m)
 
     folium.LayerControl().add_to(m)
     m.save(str(output_path))
