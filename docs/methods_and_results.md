@@ -11,7 +11,7 @@
 
 In 2022 we implemented the open-source Weather Research and Forecasting (WRF) model (Skamarock and Klemp, 2008) to provide weather forecasts over Central Asia. We derive WRF initial and lateral boundary conditions from the US National Weather Service Global Forecast System (GFS), and configure the model with a nested grid: a 12-km outer domain and a 4-km inner nest. WRF produces 7-day forecasts updated twice daily; post-processing generates standard meteorological parameter imagery and point forecasts available on a regional website.
 
-Following the approach developed at the Colorado Avalanche Information Center (Snook et al., 2022; Snook, 2016), we implemented the SLF SNOWPACK model (Morin et al., 2020) for the 2024–2025 season. We feed WRF 4-km output directly into SNOWPACK as meteorological forcing, which simulates per-layer snowpack evolution at each grid point. The system generates snowpack profiles at all WRF 4-km grid points above 3,500 m within the defined forecast region, updates them daily, and makes them accessible through the same regional website.
+Following the approach developed at the Colorado Avalanche Information Center (Snook et al., 2022; Snook, 2016), we implemented the SLF SNOWPACK model (Lehning et al., 2002; Morin et al., 2020) for the 2024–2025 season. We feed WRF 4-km output directly into SNOWPACK as meteorological forcing, which simulates per-layer snowpack evolution at each grid point. The system generates snowpack profiles at all WRF 4-km grid points above 3,500 m within the defined forecast region, updates them daily, and makes them accessible through the same regional website.
 
 For this study, we extracted SNOWPACK output at a network of 30 virtual stations across the Darvoz region of Tajikistan and adjacent Pakistan, spanning elevations from approximately 2,100 to 4,900 m. We assigned each station a specific aspect (N, E, S, W, or flat) and elevation, producing a spatially distributed representation of snowpack evolution tuned to slope exposure. We ran simulations for two consecutive winter seasons: 2024–2025 (training) and 2025–2026 (evaluation). Sub-daily `.smet` files provided meteorological time series, and `.pro` files provided per-layer snowpack stratigraphy at each timestep. Table 1 summarizes the outputs we used.
 
@@ -34,7 +34,7 @@ We had no in-situ snowpack observations to validate simulated stratigraphy; the 
 
 We compiled avalanche observations from two sources. The Aga Khan Agency for Habitat (AKAH) maintains a structured observation log covering Pakistan and Tajikistan across multiple seasons. We also extracted a supplementary set of events from social media posts shared by local residents and relief workers. Both sources report valley-floor runout locations rather than start zones, and each record includes date, approximate location, slope angle, aspect, and a qualitative size estimate.
 
-The combined dataset contains 69 observations: 26 from the 2024–2025 season (training) and 43 from 2025–2026 (evaluation). We treat observations as weakly labeled events — they confirm that an avalanche reached the valley floor, but do not verify the precise trigger mechanism, release zone, or snowpack state. This weak-label framing is a deliberate design choice consistent with the data-sparse context.
+The combined dataset contains 69 observations: 26 from the 2024–2025 season (training) and 43 from 2025–2026 (evaluation). We treat observations as weakly labeled events in two senses. First, a positive label confirms that an avalanche reached the valley floor but does not verify the precise trigger mechanism, release zone, or snowpack state. Second, and more fundamentally, the absence of an observation does not confirm the absence of an avalanche: our records are an opportunistic, almost certainly incomplete sample of activity, so an unknown number of true events go unreported and are silently labeled negative. This is a positive-unlabeled (PU) setting (Elkan and Noto, 2008) rather than a clean positive/negative one — the "negative" class is contaminated with unlabeled positives, which biases trained probabilities downward and makes our reported skill a conservative lower bound on what the underlying signal could support. We deliberately do not attempt a formal PU correction: reliable estimation of the label frequency is infeasible at this sample size (~35 positive days), the strongly non-random reporting process (large avalanches near villages and roads are far more likely to be recorded) violates the selected-completely-at-random (SCAR) assumption that standard PU corrections require (Elkan and Noto, 2008), and our headline metrics (AUC-ROC, average precision) are rank-based and therefore invariant to the monotonic probability rescaling such a correction would apply. We instead carry the PU contamination as an acknowledged limitation. This weak-label framing is a deliberate design choice consistent with the data-sparse context.
 
 ### 2.3 Observation-to-Station Matching
 
@@ -70,7 +70,7 @@ Where zone-derived features contained no non-NaN values on positive training day
 
 ### 3.3 Classifier Design
 
-We implemented four classifier configurations. The first three are L2-regularized frequentist logistic regressions; the fourth is a hierarchical Bayesian model that unifies them. All use the reduced five-feature set and standardized inputs.
+We implemented four classifier configurations. The first three are L2-regularized frequentist logistic regressions (scikit-learn; Pedregosa et al., 2011); the fourth is a hierarchical Bayesian model that unifies them. All use the reduced five-feature set and standardized inputs.
 
 **Per-station logistic regression.** We trained a separate model for each station using its 2024–2025 features and matched event dates, requiring a minimum of two positive-labeled days. Because 1–2 positive samples cannot support a tuned penalty, we applied strong fixed regularization (C = 0.1). Models are saved and reloaded without retraining unless requested.
 
@@ -78,11 +78,11 @@ We implemented four classifier configurations. The first three are L2-regularize
 
 **Confidence-weighted blended classifier.** We formed a composite per-station probability by weighting the per-station and regional predictions as $p_\text{blend} = w\,p_\text{station} + (1-w)\,p_\text{regional}$ with $w = \min(n_\text{train}/5,\,1)$. This is a hand-built approximation of partial pooling; the hierarchical model below performs the same shrinkage in a principled, data-driven way.
 
-**Hierarchical Bayesian model (partial pooling).** We fit a single multilevel logistic regression in which each station's intercept and slopes are drawn from shared regional distributions:
+**Hierarchical Bayesian model (partial pooling).** We fit a single multilevel logistic regression (partial pooling; Gelman and Hill, 2007) in which each station's intercept and slopes are drawn from shared regional distributions:
 
 $$\text{logit}(p_{s,t}) = \alpha_s + \boldsymbol{\beta}_s \cdot \mathbf{x}_{s,t}, \qquad \alpha_s \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha), \quad \beta_{s,k} \sim \mathcal{N}(\mu_{\beta,k}, \sigma_{\beta,k})$$
 
-with weakly-informative hyperpriors and a non-centered parameterization for stable sampling. The between-station spreads ($\sigma_\alpha, \sigma_{\beta,k}$) are learned from the data, so each station's coefficients shrink toward the regional mean by an amount the data dictates: stations with many events retain their own signal, stations with one event shrink strongly toward the population. This replaces the three models above with one coherent framework, and the posterior provides a per-station prediction *and* its uncertainty (the spread across posterior draws) — the uncertainty directly supplying a confidence measure for operational display. We trained on the 13 stations with at least one event (event-free stations contribute only unconstrained noise to the hierarchy and are served at prediction time by the population-level coefficients), centering the intercept prior on the empirical log-odds to keep probabilities calibrated. We sampled with NUTS (two chains, 1000 tuning + 1000 draws each; zero divergences).
+with weakly-informative hyperpriors and a non-centered parameterization for stable sampling (Betancourt and Girolami, 2015). The between-station spreads ($\sigma_\alpha, \sigma_{\beta,k}$) are learned from the data, so each station's coefficients shrink toward the regional mean by an amount the data dictates: stations with many events retain their own signal, stations with one event shrink strongly toward the population. This replaces the three models above with one coherent framework, and the posterior provides a per-station prediction *and* its uncertainty (the spread across posterior draws) — the uncertainty directly supplying a confidence measure for operational display. We trained on the 13 stations with at least one event (event-free stations contribute only unconstrained noise to the hierarchy and are served at prediction time by the population-level coefficients), centering the intercept prior on the empirical log-odds to keep probabilities calibrated. We sampled with the No-U-Turn Sampler (NUTS; Hoffman and Gelman, 2014) as implemented in PyMC (Abril-Pla et al., 2023) — two chains, 1000 tuning + 1000 draws each; zero divergences.
 
 ### 3.4 Evaluation Design
 
@@ -90,7 +90,7 @@ We applied three complementary evaluation frameworks, each suited to a different
 
 **Temporal leave-one-out cross-validation (per-station).** For each station, we pooled all observed avalanche events across both seasons and sorted them chronologically. In fold *i*, we trained the model on all events preceding event *i* and tested on event *i*. We loaded training features from the season(s) containing the training events and test features from the season containing the held-out event. This design ensures no future information informs training, maximizes use of the limited observation record, and avoids having more test events than training events at a given station. Stations with only one event contributed no folds; stations with *n* events contributed *n* − 1 folds. The primary per-fold metric is the **event window probability**: the maximum predicted probability within the three-day window preceding and including the test event. We defined detection as event window probability ≥ 0.5.
 
-**Cross-season holdout (regional, blended, and hierarchical models).** We trained the aggregate models exclusively on 2024–2025 data and evaluated them on all 2025–2026 events. This one-season holdout tests cross-season generalization and complements the per-station LOO results. Because the hierarchical model produces calibrated low-magnitude probabilities, we compare all aggregate models with the threshold-free metrics AUC-ROC and average precision (AP).
+**Cross-season holdout (regional, blended, and hierarchical models).** We trained the aggregate models exclusively on 2024–2025 data and evaluated them on all 2025–2026 events. This one-season holdout tests cross-season generalization and complements the per-station LOO results. Because the hierarchical model produces calibrated low-magnitude probabilities, we compare all aggregate models with the threshold-free metrics AUC-ROC and average precision (AP); for the heavy class imbalance here, precision-recall summaries such as AP are more informative than ROC alone (Saito and Rehmsmeier, 2015).
 
 **Event-level precision-recall.** For each test event, we took the maximum model probability within a three-day pre-event window as the event detection score. We drew non-overlapping, same-length windows from non-grace-zone periods at the same stations to serve as the negative class. This framing asks whether the model issued a timely warning before each event — a more operationally relevant question than per-day classification accuracy in a high-stakes forecasting context.
 
@@ -232,9 +232,25 @@ Four stations now meet a ≤10% false-alarm operational criterion, up from two, 
 
 ## References
 
+Abril-Pla, O., Andreani, V., Carroll, C., Dong, L., Fonnesbeck, C. J., Kochurov, M., Kumar, R., Lao, J., Luhmann, C. C., Martin, O. A., Osthege, M., Vieira, R., Wiecki, T., and Zinkov, R.: PyMC: a modern, and comprehensive probabilistic programming framework in Python, *PeerJ Computer Science*, 9, e1516, https://doi.org/10.7717/peerj-cs.1516, 2023.
+
+Betancourt, M. and Girolami, M.: Hamiltonian Monte Carlo for hierarchical models, in: *Current Trends in Bayesian Methodology with Applications*, Chapman and Hall/CRC, 79–101, 2015.
+
+Elkan, C. and Noto, K.: Learning classifiers from only positive and unlabeled data, in: *Proceedings of the 14th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining*, 213–220, https://doi.org/10.1145/1401890.1401920, 2008.
+
+Gelman, A. and Hill, J.: *Data Analysis Using Regression and Multilevel/Hierarchical Models*, Cambridge University Press, 2007.
+
+Hoffman, M. D. and Gelman, A.: The No-U-Turn Sampler: adaptively setting path lengths in Hamiltonian Monte Carlo, *Journal of Machine Learning Research*, 15, 1593–1623, 2014.
+
+Lehning, M., Bartelt, P., Brown, B., Fierz, C., and Satyawali, P.: A physical SNOWPACK model for the Swiss avalanche warning services. Part II: snow microstructure, *Cold Regions Science and Technology*, 35(3), 147–167, 2002.
+
 Morin, S., Horton, S., Techel, F., Bavay, M., Coléou, C., Fierz, C., Gobiet, A., Hagenmuller, P., Lafaysse, M., Ližar, M., Mitterer, C., Monti, F., Müller, K., Olefs, M., Snook, J. S., van Herwijnen, A., and Vionnet, V.: Application of physical snowpack models in support of operational avalanche hazard forecasting: A status report on current implementations and prospects for the future, *Cold Regions Science and Technology*, 170, 102190, https://doi.org/10.1016/j.coldregions.2019.102910, 2020.
 
-Skamarock, W. C. and Klemp, J. B.: A time-split nonhydrostatic atmospheric model for research and NWP applications, *J. Comp. Phys.*, 227, 3465–3485, 2008.
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., and Duchesnay, É.: Scikit-learn: machine learning in Python, *Journal of Machine Learning Research*, 12, 2825–2830, 2011.
+
+Saito, T. and Rehmsmeier, M.: The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets, *PLOS ONE*, 10(3), e0118432, https://doi.org/10.1371/journal.pone.0118432, 2015.
+
+Skamarock, W. C. and Klemp, J. B.: A time-split nonhydrostatic atmospheric model for research and NWP applications, *Journal of Computational Physics*, 227, 3465–3485, 2008.
 
 Snook, J. S., Cooperstein, M., and Greene, E.: Snowpack modeling efforts at the Colorado Avalanche Information Center, *Proceedings of the International Snow Science Workshop*, Bend, OR, USA, 2022.
 

@@ -104,6 +104,7 @@
 - Model chain risk: NWP → SNOWPACK → classifier — errors accumulate, no internal validation point
 - No snowpack observations: simulated Sn38 unverified against real stratigraphy
 - Social media labels: geographic imprecision, reporting bias, survivorship
+- Positive-unlabeled (PU) contamination: unreported events are silently labeled negative, so reported skill is a conservative lower bound. No formal PU correction attempted — label-frequency estimation is infeasible at n≈35 positives, non-random reporting violates the SCAR assumption, and rank-based metrics (AUC, AP) are invariant to it anyway. (See Methods §2.2.)
 - Expert terrain interpretation introduces subjectivity at the matching step; not reproducible without the same practitioner
 
 ### 5.3 Decision-Support Framing
