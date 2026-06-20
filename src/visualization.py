@@ -836,6 +836,17 @@ def create_avalanche_map(
 
     import json as _json
 
+    # Serialise prob_by_station early — needed by both the obs script and sim layer.
+    prob_series_dict: dict[str, dict[str, float]] = {}
+    if prob_by_station:
+        for _sid, _series in prob_by_station.items():
+            _clean = _series.dropna()
+            prob_series_dict[_sid] = {
+                pd.Timestamp(_ts).strftime('%Y-%m-%d'): round(float(_p), 4)
+                for _ts, _p in _clean.items()
+            }
+    prob_series_json = _json.dumps(prob_series_dict)
+
     features = [
         {
             "type": "Feature",
@@ -848,6 +859,7 @@ def create_avalanche_map(
                 "aspect":       str(row.get('Aspect', '') or ''),
                 "date":         str(row.get('date', '') or ''),
                 "url":          row['target_url'],
+                "station_id":   str(row.get('station_id', '') or ''),
                 "forecast_prob": (
                     None if (
                         'forecast_prob' not in df.columns
@@ -919,27 +931,52 @@ def create_avalanche_map(
     m.get_root().html.add_child(folium.Element(f"""
     <script>
     window.addEventListener('load', function() {{
-        var _obsLayer = {obs_layer_name};
-        var _map      = {map_name};
+        var _obsLayer    = {obs_layer_name};
+        var _map         = {map_name};
+        var _OBS_PROB_SERIES = {prob_series_json};
+
+        function _navDateToISOObs(dateStr) {{
+            var d = new Date(dateStr);
+            if (isNaN(d)) return null;
+            return d.getUTCFullYear() + '-'
+                + String(d.getUTCMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getUTCDate()).padStart(2, '0');
+        }}
 
         function _filterObs(features) {{
             _obsLayer.clearLayers();
             _obsLayer.addData({{type: 'FeatureCollection', features: features}});
         }}
 
-        // Date nav: filter by selected observation date (or show all)
+        // Date nav: filter to selected date and recolour triangles by that day's
+        // station probability (not the fixed forecast-window value).
         window._obsRefresh = function() {{
             var state = window._dateNavState || {{idx: -1, dates: [], features: []}};
-            var show = state.idx === -1
-                ? state.features
-                : state.features.filter(function(f) {{ return f.properties.date === state.dates[state.idx]; }});
+            if (state.idx === -1) {{
+                _filterObs(state.features);
+                return;
+            }}
+            var sel     = state.dates[state.idx];
+            var isoDate = _navDateToISOObs(sel);
+            var show = state.features
+                .filter(function(f) {{ return f.properties.date === sel; }})
+                .map(function(f) {{
+                    if (!isoDate) return f;
+                    var sid = f.properties.station_id;
+                    var p   = sid ? (_OBS_PROB_SERIES[sid] || {{}})[isoDate] : undefined;
+                    if (p === undefined) return f;
+                    // Return a shallow clone with forecast_prob replaced by the daily value.
+                    return {{
+                        type: f.type,
+                        geometry: f.geometry,
+                        properties: Object.assign({{}}, f.properties, {{forecast_prob: p}})
+                    }};
+                }});
             _filterObs(show);
         }};
 
-        // Time-series player: poll timeDimension and filter triangles when it advances.
-        // Only applies when the date nav is at "All dates" (idx === -1); date nav takes
-        // priority when a specific date is selected.
-        // _tdObsSeen: skip the first tick so the initial TD time doesn't hide all triangles.
+        // Time-series player: poll timeDimension and filter + recolour triangles.
+        // _tdObsSeen: skip first tick so initial TD time doesn't hide all triangles.
         var _lastTdTime = null;
         var _tdObsSeen  = false;
         var _months = ['January','February','March','April','May','June',
@@ -947,18 +984,33 @@ def create_avalanche_map(
         setInterval(function() {{
             if (!_map.timeDimension) return;
             var state = window._dateNavState || {{idx: -1}};
-            if (state.idx !== -1) return;          // date nav has priority
+            if (state.idx !== -1) return;
             var t = _map.timeDimension.getCurrentTime();
             if (t === null) return;
             if (!_tdObsSeen) {{ _tdObsSeen = true; _lastTdTime = t; return; }}
             if (t === _lastTdTime) return;
             _lastTdTime = t;
-            var d   = new Date(t);
+            var d       = new Date(t);
+            var isoDate = d.getUTCFullYear() + '-'
+                + String(d.getUTCMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getUTCDate()).padStart(2, '0');
             var str = _months[d.getUTCMonth()] + ' '
                     + String(d.getUTCDate()).padStart(2, '0') + ', '
                     + d.getUTCFullYear();
             var all = (window._dateNavState || {{}}).features || [];
-            _filterObs(all.filter(function(f) {{ return f.properties.date === str; }}));
+            var show = all
+                .filter(function(f) {{ return f.properties.date === str; }})
+                .map(function(f) {{
+                    var sid = f.properties.station_id;
+                    var p   = sid ? (_OBS_PROB_SERIES[sid] || {{}})[isoDate] : undefined;
+                    if (p === undefined) return f;
+                    return {{
+                        type: f.type,
+                        geometry: f.geometry,
+                        properties: Object.assign({{}}, f.properties, {{forecast_prob: p}})
+                    }};
+                }});
+            _filterObs(show);
         }}, 150);
     }});
     </script>
@@ -1052,17 +1104,6 @@ def create_avalanche_map(
                 date_options="YYYY-MM-DD", time_slider_drag_update=True,
                 add_last_point=False,
             ).add_to(m)
-
-    # Serialise prob_by_station time series for _sim_layer_html's time-player polling.
-    import json as _json
-    prob_series_dict: dict[str, dict[str, float]] = {}
-    if prob_by_station:
-        for sid, series in prob_by_station.items():
-            clean = series.dropna()
-            prob_series_dict[sid] = {
-                pd.Timestamp(ts).strftime('%Y-%m-%d'): round(float(p), 4)
-                for ts, p in clean.items()
-            }
 
     layer_ctrl = folium.LayerControl()
     layer_ctrl.add_to(m)

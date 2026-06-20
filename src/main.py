@@ -914,15 +914,15 @@ def main() -> None:
                 plt.close(fig)
                 print(f"  → saved operational_thresholds.png")
 
-    # --- Operational fit: blended model trained on entire 2025-26 dataset -------
-    # Collects ALL 2025-26 observations (train + test splits) as labels, then fits
-    # per-station and regional models on the current-season features so the map
-    # shows the best available estimate rather than a held-out evaluation model.
+    # --- Operational fit: blended model trained on ALL available data -----------
+    # Uses observations and features from every season so nothing is held out.
+    # Training: combined multi-season features + all event dates (both seasons).
+    # Prediction: 2025-26 features only — the map always shows the current season.
 
     op_event_dates: dict[str, list] = {}
     for _idx, (_, _row) in enumerate(df_all.iterrows()):
         _pf = matched_pro_files[_idx]
-        if _pf is None or _row['source_season'] != SEASON:
+        if _pf is None:
             continue
         _rd = pd.to_datetime(_row.get('Date', ''), errors='coerce')
         if pd.isna(_rd):
@@ -932,35 +932,48 @@ def main() -> None:
             op_event_dates[_pf.stem].append(_rd)
 
     n_op_events = sum(len(v) for v in op_event_dates.values())
-    print(f"\nFitting operational blended model on full {SEASON} dataset "
-          f"({n_op_events} events across {len(op_event_dates)} stations)...")
+    n_op_seasons = len({r['source_season'] for _, r in df_all.iterrows()})
+    print(f"\nFitting operational blended model on full dataset "
+          f"({n_op_events} events across {len(op_event_dates)} stations, "
+          f"{n_op_seasons} season(s))...")
 
-    # Per-station operational models (2025-26 features + all 2025-26 event dates)
+    # Combined features per station (both seasons) used only for training.
+    # daily_dict (2025-26 only) is used for prediction so the map time series
+    # covers the current season.
+    op_train_daily: dict[str, pd.DataFrame] = {}
+    for _pf in sorted(unique_pro_files):
+        _sid = _pf.stem
+        _combined = _collect_all_season_features(_sid, sims_root)
+        if _combined is not None and not _combined.empty:
+            op_train_daily[_sid] = _combined
+
+    # Per-station operational models: train on combined features, predict on 2025-26.
     op_ml_stations: set[str] = set()
     op_prob_dict:   dict[str, pd.Series] = {}
     for _pf in sorted(unique_pro_files):
-        _sid   = _pf.stem
-        _daily = daily_dict.get(_pf)
-        if _daily is None:
+        _sid          = _pf.stem
+        _train_daily  = op_train_daily.get(_sid)
+        _predict_daily = daily_dict.get(_pf)
+        if _train_daily is None or _predict_daily is None:
             continue
         _ev = op_event_dates.get(_sid, [])
         if _ev:
-            _fitted_op = train_station(_daily, _ev, verbose=False)
+            _fitted_op = train_station(_train_daily, _ev, verbose=False)
             if _fitted_op is not None:
                 _m, _sc = _fitted_op
-                op_prob_dict[_sid] = predict_proba_series(_m, _sc, _daily)
+                op_prob_dict[_sid] = predict_proba_series(_m, _sc, _predict_daily)
                 op_ml_stations.add(_sid)
 
-    # Operational regional model (pools all 2025-26 stations)
-    _op_feats = {_pf.stem: _df for _pf, _df in daily_dict.items()}
-    print(f"  Training operational regional model...")
-    _op_reg_fitted = train_regional(_op_feats, op_event_dates)
+    # Operational regional model: train on combined features, predict on 2025-26.
+    print(f"  Training operational regional model (all seasons)...")
+    _op_reg_fitted = train_regional(op_train_daily, op_event_dates)
+    _op_predict_feats = {_pf.stem: _df for _pf, _df in daily_dict.items()}
     op_reg_prob_dict: dict[str, pd.Series] = {}
     if _op_reg_fitted is not None:
         _op_rm, _op_rsc = _op_reg_fitted
         op_reg_prob_dict = {
             _sid: predict_proba_series(_op_rm, _op_rsc, _df)
-            for _sid, _df in _op_feats.items()
+            for _sid, _df in _op_predict_feats.items()
         }
 
     # Blended: per-station weighted by event count, backed by regional, then Sn38
