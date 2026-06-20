@@ -11,22 +11,22 @@
 The map shows two layers of information:
 
 1. **Field observation triangles** — where AKAH staff reported avalanche events, coloured by the model's estimated hazard probability at the matched simulation station.
-2. **Simulation station circles** — the 34 virtual SNOWPACK slope stations, each coloured by the blended model's daily hazard probability, with marker style encoding how much the model can be trusted at that station.
+2. **Simulation station circles** — the virtual SNOWPACK slope stations, each coloured by the blended model's daily hazard probability, with marker style encoding how much the model can be trusted at that station.
 
 ---
 
 ## Probability Colour Scale (shared by all markers)
 
-The same six-level scale applies to both triangles and circles.
+The same five-level scale applies to both triangles and circles.
 
-| Colour | Ring / fill | Probability range |
-|--------|-------------|-------------------|
-| Gray | No data | No classifier output available |
-| Green | `#2ca02c` | < 50 % |
-| Gold | `#e6c200` | 50 – 65 % |
-| Orange | `#ff7f0e` | 65 – 80 % |
-| Red | `#d62728` | 80 – 95 % |
-| Dark red | `#7b0000` | ≥ 95 % |
+| Colour | Hex | Probability range |
+|--------|-----|-------------------|
+| Gray | — | No data / no classifier output |
+| Green | `#2ca02c` | < 33 % |
+| Gold | `#e6c200` | 33 – 50 % |
+| Orange | `#ff7f0e` | 50 – 65 % |
+| Red | `#d62728` | 65 – 80 % |
+| Dark red | `#7b0000` | ≥ 80 % |
 
 For triangles the colour fills the triangle body. For circles the colour appears on both the ring and the fill interior.
 
@@ -36,7 +36,7 @@ For triangles the colour fills the triangle body. For circles the colour appears
 
 - **Shape:** Upward-pointing SVG triangle.
 - **Location:** The valley floor or road coordinates where the AKAH observer reported the event — where the hazard reaches people.
-- **Colour:** Probability from the blended model at the matched simulation station, maximised over the forecast window (Jan 22 – 25, 2026).
+- **Colour:** Maximum blended model probability at the matched simulation station across the ±3-day window centred on the selected date (or the Jan 22–25 forecast window in the default "All dates" view).
 - **Hover tooltip:** Placemark name, date, aspect, forecast probability.
 - **Click:** Opens the matched station's interactive stability plot in a new tab.
 - **Date filtering:** Triangles are filtered by the Date Navigator. Selecting a specific date shows only observations from that day; the "All" button restores all 69 observations.
@@ -45,11 +45,11 @@ For triangles the colour fills the triangle body. For circles the colour appears
 
 ## Simulation Station Circles
 
-Each circle represents one SNOWPACK virtual slope station. There are 34 stations covering 26 unique locations (some locations have multiple aspect variants).
+Each circle represents one SNOWPACK virtual slope station.
 
 ### Ring colour → probability
 
-The ring (border stroke) carries the primary risk signal. Its colour follows the six-level probability scale above, at full opacity. Because the ring is always vivid, you can read the risk level at a glance regardless of how confident the model is.
+The ring (border stroke) carries the primary risk signal. Its colour follows the five-level probability scale above, at full opacity. Because the ring is always vivid, you can read the risk level at a glance regardless of how confident the model is.
 
 ### Fill opacity → model confidence tier (§4.5)
 
@@ -69,7 +69,7 @@ Shows station ID, aspect, current probability, and confidence tier label (Ready 
 
 ### Click
 
-Opens the station's interactive Plotly stability chart (daily Sn38 layers, dominant weak layer tracking, probability time series) in a new tab.
+Opens the station's interactive Plotly stability chart in a new tab (see **Stability Chart** section below).
 
 ---
 
@@ -88,11 +88,11 @@ The aspect filter also applies to the Regional Model overlay when it is enabled.
 
 ### Simulation stations (on by default)
 
-The 34 SNOWPACK station circles described above. Toggle off to reduce clutter when examining observation triangles.
+The SNOWPACK station circles described above. Toggle off to reduce clutter when examining observation triangles.
 
 ### Regional model (off by default)
 
-A second set of circles showing probability from the pooled regional logistic regression model (trained on all stations simultaneously). The regional model has lower discriminative power (AUC 0.836 pooled vs per-station) but covers all 34 stations uniformly, including those with no per-station classifier. Useful for a continuous spatial overview when the per-station layer shows many gray circles.
+A second set of circles showing probability from the pooled regional logistic regression model (trained on all stations simultaneously). The regional model has lower discriminative power but covers all stations uniformly, including those with no per-station classifier. Useful for a continuous spatial overview when the per-station layer shows many gray circles.
 
 When toggled on, circles use the same probability colour scale; the tooltip shows "Regional prob" to distinguish it from the per-station blended value.
 
@@ -102,11 +102,11 @@ When toggled on, circles use the same probability colour scale; the tooltip show
 
 **← | date label | → | All**
 
-- **← / →** arrows step through the 18 unique observation dates in the dataset (both 2024–25 and 2025–26 seasons).
+- **← / →** arrows step through the unique observation dates in the dataset (both 2024–25 and 2025–26 seasons).
 - Selecting a date:
   - Filters observation triangles to that day only.
-  - Recolours all simulation station circles to their blended model probability on that specific calendar date (from the daily probability time series), so you can see how modelled risk aligned with observed events.
-- **All** resets to show all observations and restores forecast-window colouring on circles.
+  - Recolours all simulation station circles and observation triangles to the **maximum blended model probability within ±3 days** of the selected date, so short-range forecast uncertainty around each event is captured.
+- **All** resets to show all observations and restores forecast-window colouring on circles (Jan 22–25 window).
 - The counter (e.g. "3 / 18") tracks position in the date sequence.
 
 ---
@@ -116,21 +116,31 @@ When toggled on, circles use the same probability colour scale; the tooltip show
 A Leaflet.TimeDimension slider spanning the full 2025–26 simulation season.
 
 - **Scrub or play** to watch daily blended model probability evolve at each station through the season.
-- Circle colours update as the slider advances, using the same `_PROB_SERIES` lookup as the Date Navigator.
+- Circle colours update as the slider advances using the **exact daily probability** (no smoothing window), so day-by-day changes are visible.
 - The Date Navigator takes priority: if a specific date is selected in the navigator, the time player's automatic recolouring is paused until you press "All".
 - Auto-play, loop, and max speed are adjustable via the player controls.
 
 ---
 
+## Stability Chart (click any marker)
+
+Clicking a simulation station circle or an observation triangle opens that station's interactive Plotly chart in a new tab. The chart has three panels:
+
+1. **Avalanche Probability (top):** Daily blended model probability for the 2025–26 season, with colour-coded threshold lines (33 / 50 / 65 / 80 %). The green band marks the ±1/+2 day forecast window around the reference date (Jan 23, 2026). Red dashed lines mark training event dates; blue dotted lines mark held-out test event dates.
+2. **Snow Stratigraphy:** Daily snowpack surface height (HS) and dominant weak layers coloured by Sn38 stability index. Circles = upper snowpack zone; diamonds = lower zone.
+3. **New Snow & Temperature:** Daily new snow (HN24, bars) and maximum air temperature (TA, line).
+
+The chart title shows **Station ID | Aspect | Confidence tier**. The x-axis is pinned to the 2025–26 season only.
+
+---
+
 ## Location Search Bar (top-left)
 
-Nominatim / OpenStreetMap geocoder. Type a place name or coordinates to pan the map to that location. Useful for field staff quickly locating their area of interest without needing to scroll.
+Nominatim / OpenStreetMap geocoder. Type a place name or coordinates to pan the map to that location. Useful for field staff quickly locating their area of interest.
 
 ---
 
 ## Base Layer Switcher (top-right layer control)
-
-Three base maps, selectable via the layer control icon:
 
 | Layer | Best for |
 |-------|----------|
@@ -144,7 +154,7 @@ Three base maps, selectable via the layer control icon:
 
 Shows:
 - **Now:** the reference forecast date (Jan 23, 2026).
-- **Window:** the ±1/+2 day window over which per-station probabilities are maximised for the default circle colouring (Jan 22 – Jan 25).
+- **Window:** the ±1/+2 day window used for default circle colouring (Jan 22 – Jan 25).
 - **Observation count:** updates when the Date Navigator filters to a specific date.
 - **Probability colour scale** (see table above).
 - **Confidence tier legend:** solid / faded / ghost fill description.
@@ -159,5 +169,6 @@ Shows:
 | Simulation stations | 34 (all 2025–26 season) |
 | Unique station locations | 26 |
 | Probability model | Blended (per-station logistic regression weighted by event count, backed by regional model) |
-| Training data | All 2025–26 observations (operational fit — not a held-out evaluation) |
+| Training data | All 2024–25 + 2025–26 observations (operational fit — not a held-out evaluation) |
 | Forecast reference date | 2026-01-23 |
+| Date-nav colour window | ±3 days around selected date |
