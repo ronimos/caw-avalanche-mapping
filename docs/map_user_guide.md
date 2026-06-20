@@ -17,11 +17,11 @@ The map shows two layers of information:
 
 ## Probability Colour Scale (shared by all markers)
 
-The same five-level scale applies to both triangles and circles.
+The same six-level scale applies to both triangles and circles.
 
 | Colour | Hex | Probability range |
 |--------|-----|-------------------|
-| Gray | — | No data / no classifier output |
+| Gray | `#808080` | No data / no classifier output |
 | Green | `#2ca02c` | < 33 % |
 | Gold | `#e6c200` | 33 – 50 % |
 | Orange | `#ff7f0e` | 50 – 65 % |
