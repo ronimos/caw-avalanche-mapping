@@ -25,10 +25,10 @@ _LAYER_PALETTE = [
 _UPPER_ZONE_FRAC = 0.40
 
 _PROB_THRESHOLDS = [
-    (0.95, 'black'),
-    (0.80, 'red'),
-    (0.65, 'orange'),
-    (0.50, 'gold'),
+    (0.80, 'black'),
+    (0.65, 'red'),
+    (0.50, 'orange'),
+    (0.33, 'gold'),
 ]
 
 
@@ -273,10 +273,10 @@ def plot_interactive_stability(
 
         # Coloured background zones as filled polygons (avoids axis-ref complexity)
         bands = [
-            (0.95, 1.00, 'rgba(0,0,0,0.08)'),
-            (0.80, 0.95, 'rgba(200,50,50,0.10)'),
-            (0.65, 0.80, 'rgba(255,140,0,0.12)'),
-            (0.50, 0.65, 'rgba(255,215,0,0.13)'),
+            (0.80, 1.00, 'rgba(0,0,0,0.08)'),
+            (0.65, 0.80, 'rgba(200,50,50,0.10)'),
+            (0.50, 0.65, 'rgba(255,140,0,0.12)'),
+            (0.33, 0.50, 'rgba(255,215,0,0.13)'),
         ]
         for y_lo, y_hi, fill in bands:
             fig.add_trace(go.Scatter(
@@ -540,10 +540,10 @@ def _sim_layer_html(
 
         function _simColors(p) {{
             if (p === null || p === undefined) return {{fill:'#808080', stroke:'#505050'}};
-            if (p >= 0.95) return {{fill:'#7b0000', stroke:'#3d0000'}};
-            if (p >= 0.80) return {{fill:'#d62728', stroke:'#8b0000'}};
-            if (p >= 0.65) return {{fill:'#ff7f0e', stroke:'#b35a00'}};
-            if (p >= 0.50) return {{fill:'#e6c200', stroke:'#9e8600'}};
+            if (p >= 0.80) return {{fill:'#7b0000', stroke:'#3d0000'}};
+            if (p >= 0.65) return {{fill:'#d62728', stroke:'#8b0000'}};
+            if (p >= 0.50) return {{fill:'#ff7f0e', stroke:'#b35a00'}};
+            if (p >= 0.33) return {{fill:'#e6c200', stroke:'#9e8600'}};
             return {{fill:'#2ca02c', stroke:'#1a6b1a'}};
         }}
 
@@ -767,10 +767,10 @@ def _prob_to_colors(p: float | None) -> tuple[str, str]:
     """Map a probability to (fill, stroke) colours — mirrors the map's JS scale."""
     if p is None or (isinstance(p, float) and math.isnan(p)):
         return '#808080', '#505050'
-    if p >= 0.95: return '#7b0000', '#3d0000'
-    if p >= 0.80: return '#d62728', '#8b0000'
-    if p >= 0.65: return '#ff7f0e', '#b35a00'
-    if p >= 0.50: return '#e6c200', '#9e8600'
+    if p >= 0.80: return '#7b0000', '#3d0000'
+    if p >= 0.65: return '#d62728', '#8b0000'
+    if p >= 0.50: return '#ff7f0e', '#b35a00'
+    if p >= 0.33: return '#e6c200', '#9e8600'
     return '#2ca02c', '#1a6b1a'
 
 
@@ -881,13 +881,13 @@ def create_avalanche_map(
             var fill, stroke;
             if (p === null || p === undefined) {
                 fill = '#808080'; stroke = '#505050';
-            } else if (p >= 0.95) {
-                fill = '#7b0000'; stroke = '#3d0000';
             } else if (p >= 0.80) {
-                fill = '#d62728'; stroke = '#8b0000';
+                fill = '#7b0000'; stroke = '#3d0000';
             } else if (p >= 0.65) {
-                fill = '#ff7f0e'; stroke = '#b35a00';
+                fill = '#d62728'; stroke = '#8b0000';
             } else if (p >= 0.50) {
+                fill = '#ff7f0e'; stroke = '#b35a00';
+            } else if (p >= 0.33) {
                 fill = '#e6c200'; stroke = '#9e8600';
             } else {
                 fill = '#2ca02c'; stroke = '#1a6b1a';
@@ -1038,11 +1038,11 @@ def create_avalanche_map(
         <hr style="margin:6px 0">
         <b>Max probability in window</b><br>
         <span style="color:#808080">&#9679;</span> No classifier<br>
-        <span style="color:#2ca02c">&#9679;</span> &lt; 50 %<br>
-        <span style="color:#e6c200">&#9679;</span> 50 – 65 %<br>
-        <span style="color:#ff7f0e">&#9679;</span> 65 – 80 %<br>
-        <span style="color:#d62728">&#9679;</span> 80 – 95 %<br>
-        <span style="color:#7b0000">&#9679;</span> &ge; 95 %
+        <span style="color:#2ca02c">&#9679;</span> &lt; 33 %<br>
+        <span style="color:#e6c200">&#9679;</span> 33 – 50 %<br>
+        <span style="color:#ff7f0e">&#9679;</span> 50 – 65 %<br>
+        <span style="color:#d62728">&#9679;</span> 65 – 80 %<br>
+        <span style="color:#7b0000">&#9679;</span> &ge; 80 %
         <hr style="margin:6px 0">
         <span id="obs-count" style="color:#555"></span>
         <hr style="margin:6px 0">

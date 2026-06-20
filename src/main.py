@@ -947,41 +947,43 @@ def main() -> None:
         if _combined is not None and not _combined.empty:
             op_train_daily[_sid] = _combined
 
-    # Per-station operational models: train on combined features, predict on 2025-26.
+    # Per-station operational models: train and predict on combined features so the
+    # probability time series spans ALL seasons (enables full-range time slider).
     op_ml_stations: set[str] = set()
     op_prob_dict:   dict[str, pd.Series] = {}
     for _pf in sorted(unique_pro_files):
-        _sid          = _pf.stem
-        _train_daily  = op_train_daily.get(_sid)
-        _predict_daily = daily_dict.get(_pf)
-        if _train_daily is None or _predict_daily is None:
+        _sid        = _pf.stem
+        _all_daily  = op_train_daily.get(_sid)   # combined both seasons
+        if _all_daily is None:
             continue
         _ev = op_event_dates.get(_sid, [])
         if _ev:
-            _fitted_op = train_station(_train_daily, _ev, verbose=False)
+            _fitted_op = train_station(_all_daily, _ev, verbose=False)
             if _fitted_op is not None:
                 _m, _sc = _fitted_op
-                op_prob_dict[_sid] = predict_proba_series(_m, _sc, _predict_daily)
+                op_prob_dict[_sid] = predict_proba_series(_m, _sc, _all_daily)
                 op_ml_stations.add(_sid)
 
-    # Operational regional model: train on combined features, predict on 2025-26.
+    # Operational regional model: train and predict on combined features.
     print(f"  Training operational regional model (all seasons)...")
     _op_reg_fitted = train_regional(op_train_daily, op_event_dates)
-    _op_predict_feats = {_pf.stem: _df for _pf, _df in daily_dict.items()}
     op_reg_prob_dict: dict[str, pd.Series] = {}
     if _op_reg_fitted is not None:
         _op_rm, _op_rsc = _op_reg_fitted
         op_reg_prob_dict = {
             _sid: predict_proba_series(_op_rm, _op_rsc, _df)
-            for _sid, _df in _op_predict_feats.items()
+            for _sid, _df in op_train_daily.items()
         }
 
-    # Blended: per-station weighted by event count, backed by regional, then Sn38
+    # Blended: per-station weighted by event count, backed by regional, then Sn38.
+    # All series span combined seasons — the time slider covers historical dates.
     op_blended_dict: dict[str, pd.Series] = {}
     for _pf in sorted(unique_pro_files):
-        _sid   = _pf.stem
-        _daily = daily_dict.get(_pf)
-        if _daily is None:
+        _sid      = _pf.stem
+        _all_daily = op_train_daily.get(_sid)
+        _daily_26  = daily_dict.get(_pf)          # 2025-26 only (fallback Sn38)
+        _ref       = _all_daily if _all_daily is not None else _daily_26
+        if _ref is None:
             continue
         _p_reg = op_reg_prob_dict.get(_sid)
         _p_sta = op_prob_dict.get(_sid) if _sid in op_ml_stations else None
@@ -990,10 +992,9 @@ def main() -> None:
             op_blended_dict[_sid] = blend_probabilities(_p_sta, _p_reg, _n_ev)
         elif _p_sta is not None:
             op_blended_dict[_sid] = _p_sta
-        else:
-            if 'sn38_min' in _daily.columns:
-                _sn38 = _daily['sn38_min'].fillna(3.0)
-                op_blended_dict[_sid] = 1.0 / (1.0 + np.exp(2.0 * (_sn38 - 1.0)))
+        elif 'sn38_min' in _ref.columns:
+            _sn38 = _ref['sn38_min'].fillna(3.0)
+            op_blended_dict[_sid] = 1.0 / (1.0 + np.exp(2.0 * (_sn38 - 1.0)))
 
     # Update regional overlay with operational probs; is_ready = has per-station ML model
     regional_prob_dict = op_reg_prob_dict
