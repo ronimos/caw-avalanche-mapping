@@ -407,6 +407,362 @@ def plot_interactive_stability(
 
 # ── map ───────────────────────────────────────────────────────────────────────
 
+def _date_nav_html(features_json: str) -> str:
+    """Returns the HTML+JS for the date navigator overlay.
+
+    features_json: JSON-serialised list of GeoJSON feature dicts.  The nav
+    reads dates and station URLs from these features to drive the sim-layer
+    date-coloring without rendering any markers itself.
+    """
+    return f"""
+    <div id="date-nav" style="
+        position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+        z-index: 1000; background: rgba(255,255,255,0.95);
+        padding: 6px 14px; border-radius: 8px; border: 1px solid #ccc;
+        font-family: sans-serif; font-size: 13px;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.18);
+        display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    ">
+        <button onclick="navDate(-1)" title="Previous date"
+                style="background:none;border:1px solid #aaa;border-radius:4px;padding:2px 9px;cursor:pointer;font-size:15px">&#8592;</button>
+        <span id="date-label" style="min-width:150px;text-align:center;font-weight:bold">All dates</span>
+        <button onclick="navDate(1)" title="Next date"
+                style="background:none;border:1px solid #aaa;border-radius:4px;padding:2px 9px;cursor:pointer;font-size:15px">&#8594;</button>
+        <span style="color:#aaa">|</span>
+        <button onclick="showAllDates()" title="Show all dates"
+                style="background:none;border:1px solid #aaa;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:#555">All</button>
+        <span id="date-counter" style="color:#888;font-size:11px"></span>
+    </div>
+    <script>
+    window.addEventListener('load', function() {{
+        var _features = {features_json};
+
+        var _dates = (function() {{
+            var seen = {{}};
+            _features.forEach(function(f) {{ var d = f.properties.date; if (d) seen[d] = true; }});
+            return Object.keys(seen).sort(function(a, b) {{ return new Date(a) - new Date(b); }});
+        }})();
+
+        var _idx = -1;
+
+        function _refresh() {{
+            var show = _idx === -1
+                ? _features
+                : _features.filter(function(f) {{ return f.properties.date === _dates[_idx]; }});
+            var lbl = document.getElementById('date-label');
+            var ctr = document.getElementById('date-counter');
+            if (lbl) lbl.textContent = _idx === -1 ? 'All dates' : _dates[_idx];
+            if (ctr) ctr.textContent = _idx === -1
+                ? '(' + _dates.length + ' dates)'
+                : '(' + (_idx + 1) + ' / ' + _dates.length + ')';
+            var obs = document.getElementById('obs-count');
+            if (obs) obs.textContent = show.length + ' observation' + (show.length !== 1 ? 's' : '');
+            window._dateNavState = {{idx: _idx, dates: _dates, features: _features}};
+            if (typeof window._obsRefresh  === 'function') window._obsRefresh();
+            if (typeof window._simRefresh  === 'function') window._simRefresh();
+        }}
+
+        window._dateNavState = {{idx: -1, dates: _dates, features: _features}};
+
+        window.navDate = function(dir) {{
+            if (_dates.length === 0) return;
+            if (_idx === -1) {{
+                _idx = dir > 0 ? 0 : _dates.length - 1;
+            }} else {{
+                _idx = Math.max(0, Math.min(_dates.length - 1, _idx + dir));
+            }}
+            _refresh();
+        }};
+
+        window.showAllDates = function() {{ _idx = -1; _refresh(); }};
+
+        var ctr = document.getElementById('date-counter');
+        if (ctr) ctr.textContent = '(' + _dates.length + ' dates)';
+        var obs = document.getElementById('obs-count');
+        if (obs) obs.textContent = _features.length + ' observation' + (_features.length !== 1 ? 's' : '');
+    }});
+    </script>
+    """
+
+
+def _sim_layer_html(
+    map_name: str,
+    layer_ctrl_name: str,
+    stations: list[dict],
+    prob_series_json: str = '{}',
+) -> str:
+    """
+    Returns HTML+JS that adds a simulation-stations overlay and aspect-filter UI.
+
+    Each entry in `stations` must have keys:
+        id, lat, lon, aspect, forecast_prob (float|None),
+        confidence_tier ('ready' | 'marginal' | 'not_ready')
+
+    prob_series_json: JSON-serialised dict  {station_id: {"YYYY-MM-DD": prob, ...}}
+        used to recolour _simLayer as the time player scrubs through dates.
+        The TimestampedGeoJson layer drives the time slider but its own circles are
+        hidden (weight 0, fillOpacity 0) — _simLayer is the sole visual layer.
+    """
+    import json as _json
+    stations_js = _json.dumps(stations)
+    return f"""
+    <div id="aspect-filter" style="
+        position: fixed; bottom: 40px; right: 12px; z-index: 1000;
+        background: rgba(255,255,255,0.95);
+        padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc;
+        font-family: sans-serif; font-size: 11px;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.18);
+    ">
+        <div style="font-weight:bold;color:#444;margin-bottom:5px">Aspect filter</div>
+        <div style="display:flex;gap:3px;flex-wrap:wrap;max-width:160px">
+            <button id="asp-All"  onclick="filterAspect('All')"  style="background:#444;color:#fff;border:1px solid #444;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">All</button>
+            <button id="asp-N"    onclick="filterAspect('N')"    style="background:none;color:#555;border:1px solid #aaa;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">N</button>
+            <button id="asp-E"    onclick="filterAspect('E')"    style="background:none;color:#555;border:1px solid #aaa;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">E</button>
+            <button id="asp-S"    onclick="filterAspect('S')"    style="background:none;color:#555;border:1px solid #aaa;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">S</button>
+            <button id="asp-W"    onclick="filterAspect('W')"    style="background:none;color:#555;border:1px solid #aaa;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">W</button>
+            <button id="asp-Flat" onclick="filterAspect('Flat')" style="background:none;color:#555;border:1px solid #aaa;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px">Flat</button>
+        </div>
+        <hr style="margin:6px 0;border:none;border-top:1px solid #ddd">
+        <div style="font-weight:bold;color:#444;margin-bottom:4px">Layers</div>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;margin-bottom:3px">
+            <input type="checkbox" id="sim-toggle" checked onchange="window.toggleSim(this.checked)">
+            <span>Simulation stations</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" id="reg-toggle" onchange="window.toggleRegional(this.checked)">
+            <span>Regional model</span>
+        </label>
+    </div>
+    <script>
+    window.addEventListener('load', function() {{
+        var _SIM        = {stations_js};
+        var _PROB_SERIES = {prob_series_json};  // {{station_id: {{"YYYY-MM-DD": prob}}}}
+
+        function _simColors(p) {{
+            if (p === null || p === undefined) return {{fill:'#808080', stroke:'#505050'}};
+            if (p >= 0.95) return {{fill:'#7b0000', stroke:'#3d0000'}};
+            if (p >= 0.80) return {{fill:'#d62728', stroke:'#8b0000'}};
+            if (p >= 0.65) return {{fill:'#ff7f0e', stroke:'#b35a00'}};
+            if (p >= 0.50) return {{fill:'#e6c200', stroke:'#9e8600'}};
+            return {{fill:'#2ca02c', stroke:'#1a6b1a'}};
+        }}
+
+        var _simAspect = 'All';
+        var _simLayer = L.geoJson(null, {{
+            pointToLayer: function(feature, latlng) {{
+                var p    = feature.properties.forecast_prob;
+                var c    = _simColors(p);
+                var tier = feature.properties.confidence_tier;
+                // Ring colour   = probability (vivid — primary risk signal)
+                // Fill opacity  = confidence tier (§4.5):
+                //   0.82 (solid)  → Ready     (FA ≤ 10%)
+                //   0.42 (faded)  → Marginal  (FA 10–25%)
+                //   0.12 (ghost)  → Not ready (FA > 25%)
+                // Ring weight also varies by tier for a redundant confidence cue.
+                var fillOp = tier === 'ready' ? 0.82 : tier === 'marginal' ? 0.42 : 0.12;
+                var weight = tier === 'ready' ? 3.5  : tier === 'marginal' ? 2.5  : 1.5;
+                return L.circleMarker(latlng, {{
+                    radius:      7,
+                    fillColor:   c.fill,
+                    fillOpacity: fillOp,
+                    color:       c.fill,
+                    weight:      weight,
+                    opacity:     1,
+                }});
+            }},
+            onEachFeature: function(feature, layer) {{
+                var pr = feature.properties;
+                var probStr = (pr.forecast_prob !== null && pr.forecast_prob !== undefined)
+                    ? Math.round(pr.forecast_prob * 100) + '%' : 'n/a';
+                var tier = pr.confidence_tier;
+                var tierLabel = tier === 'ready'
+                    ? '<b>Ready</b> (FA &le;10%)'
+                    : tier === 'marginal'
+                        ? '<b>Marginal</b> (FA 10–25%)'
+                        : (pr.forecast_prob !== null && pr.forecast_prob !== undefined)
+                            ? 'Not ready (FA &gt;25%)'
+                            : 'No data';
+                layer.bindTooltip(
+                    '<b>' + pr.id.replace('_res','') + '</b><br>'
+                    + 'Aspect: ' + pr.aspect + '<br>'
+                    + 'Prob: <b>' + probStr + '</b><br>'
+                    + 'Confidence: ' + tierLabel,
+                    {{sticky: true}}
+                );
+                layer.on('click', function() {{
+                    if (pr.url) window.open(pr.url, '_blank');
+                }});
+            }}
+        }});
+
+        // Parse "Month DD, YYYY" (date nav format) → "YYYY-MM-DD" for PROB_SERIES lookup.
+        function _navDateToISO(dateStr) {{
+            var d = new Date(dateStr);
+            if (isNaN(d)) return null;
+            return d.getUTCFullYear() + '-'
+                + String(d.getUTCMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getUTCDate()).padStart(2, '0');
+        }}
+
+        // tdDate: "YYYY-MM-DD" from time player, or null/undefined for forecast window.
+        function _doSimRefresh(tdDate) {{
+            var state = window._dateNavState || {{idx: -1, features: [], dates: []}};
+
+            // Build a per-station probability override for the current context.
+            // Stations not in the override keep their all-window forecast_prob (never gray).
+            var probOverride = null;
+
+            if (state.idx !== -1) {{
+                // Date nav active: recolour all stations from PROB_SERIES for this date.
+                var isoDate = _navDateToISO(state.dates[state.idx]);
+                if (isoDate) {{
+                    probOverride = {{}};
+                    _SIM.forEach(function(s) {{
+                        var p = (_PROB_SERIES[s.id] || {{}})[isoDate];
+                        if (p !== undefined) probOverride[s.id] = p;
+                    }});
+                }}
+            }} else if (tdDate) {{
+                // Time player: look up each station's prob for that specific date.
+                probOverride = {{}};
+                _SIM.forEach(function(s) {{
+                    var p = (_PROB_SERIES[s.id] || {{}})[tdDate];
+                    if (p !== undefined) probOverride[s.id] = p;
+                }});
+            }}
+
+            _simLayer.clearLayers();
+
+            // Apply prob override to get each station's current probability.
+            var candidates = _SIM.map(function(s) {{
+                var prob = s.forecast_prob;
+                if (probOverride !== null && s.id in probOverride) prob = probOverride[s.id];
+                return {{id:s.id, lat:s.lat, lon:s.lon, aspect:s.aspect,
+                         forecast_prob:prob, confidence_tier:s.confidence_tier, url:s.url}};
+            }});
+
+            var filtered;
+            if (_simAspect === 'All') {{
+                // One marker per unique location, coloured by max probability across all aspects.
+                var byLoc = {{}};
+                candidates.forEach(function(s) {{
+                    var key = s.lat.toFixed(4) + ',' + s.lon.toFixed(4);
+                    var cur = byLoc[key];
+                    var sProb = s.forecast_prob !== null && s.forecast_prob !== undefined ? s.forecast_prob : -1;
+                    var cProb = cur && cur.forecast_prob !== null && cur.forecast_prob !== undefined ? cur.forecast_prob : -1;
+                    if (!cur || sProb > cProb) byLoc[key] = s;
+                }});
+                filtered = Object.values(byLoc);
+            }} else {{
+                filtered = candidates.filter(function(s) {{ return s.aspect === _simAspect; }});
+            }}
+
+            var features = filtered.map(function(s) {{
+                return {{type:'Feature',
+                         geometry:{{type:'Point', coordinates:[s.lon, s.lat]}},
+                         properties:{{id:s.id, aspect:s.aspect, forecast_prob:s.forecast_prob,
+                                      confidence_tier:s.confidence_tier, url:s.url}}}};
+            }});
+            _simLayer.addData({{type:'FeatureCollection', features:features}});
+        }}
+
+        window._simRefresh = _doSimRefresh;
+
+        // Time player: poll timeDimension and recolour sim markers when it advances.
+        // Skipped when date nav has a specific date selected (date nav takes priority).
+        // _tdSimSeen: skip first tick so initial TD time doesn't override forecast-window colours.
+        var _lastTdTimeForSim = null;
+        var _tdSimSeen        = false;
+        setInterval(function() {{
+            var _map = {map_name};
+            if (!_map.timeDimension) return;
+            var state = window._dateNavState || {{idx: -1}};
+            if (state.idx !== -1) return;
+            var t = _map.timeDimension.getCurrentTime();
+            if (t === null) return;
+            if (!_tdSimSeen) {{ _tdSimSeen = true; _lastTdTimeForSim = t; return; }}
+            if (t === _lastTdTimeForSim) return;
+            _lastTdTimeForSim = t;
+            var d = new Date(t);
+            var dateStr = d.getUTCFullYear() + '-'
+                + String(d.getUTCMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getUTCDate()).padStart(2, '0');
+            _doSimRefresh(dateStr);
+        }}, 150);
+
+        // ── Regional model overlay layer ──────────────────────────────────
+        var _regionalLayer = L.geoJson(null, {{
+            pointToLayer: function(feature, latlng) {{
+                var p = feature.properties.regional_prob;
+                var c = _simColors(p);
+                return L.circleMarker(latlng, {{
+                    radius: 7,
+                    fillColor: c.fill,
+                    color: c.stroke,
+                    weight: 3.5,
+                    opacity: 1,
+                    fillOpacity: p !== null && p !== undefined ? 0.78 : 0.15
+                }});
+            }},
+            onEachFeature: function(feature, layer) {{
+                var pr = feature.properties;
+                var probStr = (pr.regional_prob !== null && pr.regional_prob !== undefined)
+                    ? Math.round(pr.regional_prob * 100) + '%' : 'n/a';
+                layer.bindTooltip(
+                    '<b>' + pr.id.replace('_res','') + '</b><br>'
+                    + 'Aspect: ' + pr.aspect + '<br>'
+                    + 'Regional prob: <b>' + probStr + '</b><br>'
+                    + '<span style="color:#888">&#x25CB; Regional model</span>',
+                    {{sticky: true}}
+                );
+                layer.on('click', function() {{
+                    if (pr.url) window.open(pr.url, '_blank');
+                }});
+            }}
+        }});
+
+        function _doRegionalRefresh() {{
+            _regionalLayer.clearLayers();
+            var show = _SIM.filter(function(s) {{ return _simAspect === 'All' || s.aspect === _simAspect; }});
+            var features = show.map(function(s) {{
+                return {{type:'Feature',
+                         geometry:{{type:'Point', coordinates:[s.lon, s.lat]}},
+                         properties:{{id:s.id, aspect:s.aspect, regional_prob:s.regional_prob, url:s.url}}}};
+            }});
+            _regionalLayer.addData({{type:'FeatureCollection', features:features}});
+        }}
+
+        window.filterAspect = function(asp) {{
+            _simAspect = asp;
+            ['All','N','E','S','W','Flat'].forEach(function(a) {{
+                var btn = document.getElementById('asp-' + a);
+                if (!btn) return;
+                btn.style.background  = a === asp ? '#444' : 'none';
+                btn.style.color       = a === asp ? '#fff' : '#555';
+                btn.style.borderColor = a === asp ? '#444' : '#aaa';
+            }});
+            _doSimRefresh();
+            _doRegionalRefresh();
+        }};
+
+        window.toggleSim = function(show) {{
+            if (show) {{ _simLayer.addTo({map_name}); _doSimRefresh(); }}
+            else       {map_name}.removeLayer(_simLayer);
+        }};
+
+        window.toggleRegional = function(show) {{
+            if (show) {{ _regionalLayer.addTo({map_name}); _doRegionalRefresh(); }}
+            else       {map_name}.removeLayer(_regionalLayer);
+        }};
+
+        window.filterAspect('All');
+        _simLayer.addTo({map_name});
+        // Regional overlay starts hidden (checkbox is unchecked by default)
+    }});
+    </script>
+    """
+
+
 def _prob_to_colors(p: float | None) -> tuple[str, str]:
     """Map a probability to (fill, stroke) colours — mirrors the map's JS scale."""
     if p is None or (isinstance(p, float) and math.isnan(p)):
@@ -424,6 +780,7 @@ def create_avalanche_map(
     target_url: str = "stability_analysis.html",
     forecast_date: pd.Timestamp | None = None,
     prob_by_station: dict[str, pd.Series] | None = None,
+    sim_stations: list[dict] | None = None,
 ) -> None:
     """
     Creates a Folium map with circle markers for each avalanche observation.
@@ -457,22 +814,27 @@ def create_avalanche_map(
         df = df.copy()
         df['target_url'] = target_url
 
+    from folium.plugins import Geocoder
+
     m = folium.Map(
         location=[df['Latitude'].mean(), df['Longitude'].mean()],
         zoom_start=9,
     )
+    Geocoder().add_to(m)
 
-    folium.TileLayer('OpenStreetMap', name='Standard').add_to(m)
-    folium.TileLayer(
-        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri World Imagery',
-        name='Satellite',
-    ).add_to(m)
     folium.TileLayer(
         tiles='https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
         attr='OpenTopoMap',
         name='Topographic',
     ).add_to(m)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri World Imagery',
+        name='Satellite',
+    ).add_to(m)
+    folium.TileLayer('OpenStreetMap', name='Standard').add_to(m)
+
+    import json as _json
 
     features = [
         {
@@ -483,11 +845,8 @@ def create_avalanche_map(
             },
             "properties": {
                 "name":         row['Placemark Name'],
-                "aspect":       row.get('Aspect', ''),
-                "date":         row.get('date', ''),
-                "elevation":    row.get('Elevation (M)', ''),
-                "size":         row.get('Size', ''),
-                "remarks":      row.get('Remarks', ''),
+                "aspect":       str(row.get('Aspect', '') or ''),
+                "date":         str(row.get('date', '') or ''),
                 "url":          row['target_url'],
                 "forecast_prob": (
                     None if (
@@ -501,6 +860,9 @@ def create_avalanche_map(
         for _, row in df.iterrows()
     ]
 
+    m.get_root().html.add_child(folium.Element(_date_nav_html(_json.dumps(features))))
+
+    # ── Observation markers (triangles, date-filtered) ────────────────────────
     point_to_layer = folium.JsCode("""
         function(feature, latlng) {
             var p = feature.properties.forecast_prob;
@@ -518,76 +880,89 @@ def create_avalanche_map(
             } else {
                 fill = '#2ca02c'; stroke = '#1a6b1a';
             }
-            return L.circleMarker(latlng, {
-                radius: 10,
-                fillColor: fill,
-                color: stroke,
-                weight: 1.5,
-                opacity: 1,
-                fillOpacity: 0.88
+            var svg = '<svg width="22" height="20" viewBox="0 0 22 20" xmlns="http://www.w3.org/2000/svg">'
+                + '<polygon points="11,1 21,19 1,19" fill="' + fill + '" stroke="' + stroke
+                + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+            return L.marker(latlng, {
+                icon: L.divIcon({
+                    html: svg, className: '',
+                    iconSize: [22, 20], iconAnchor: [11, 19], tooltipAnchor: [0, -20]
+                })
             });
         }
     """)
 
     on_each_feature = folium.JsCode("""
         function(feature, layer) {
-            function wrapText(text, maxLen) {
-                var words = text.split(' ');
-                var lines = [], current = '';
-                for (var i = 0; i < words.length; i++) {
-                    var word = words[i];
-                    var candidate = current ? current + ' ' + word : word;
-                    if (candidate.length <= maxLen) {
-                        current = candidate;
-                    } else {
-                        if (current) lines.push(current);
-                        current = word;
-                    }
-                }
-                if (current) lines.push(current);
-                return lines.join('<br>');
-            }
-
             var p = feature.properties;
             var tip = '<b>' + p.name + '</b>';
-            if (p.date)      tip += '<br>Date: '      + p.date;
-            if (p.aspect)    tip += '<br>Aspect: '    + p.aspect;
-            if (p.elevation) tip += '<br>Elevation: ' + p.elevation + ' m';
-            if (p.size)      tip += '<br>Size: '      + p.size;
-            if (p.forecast_prob !== null && p.forecast_prob !== undefined) {
-                tip += '<br><b>Forecast prob: ' + Math.round(p.forecast_prob * 100) + '%</b>';
-            } else {
-                tip += '<br>Forecast prob: <i>n/a</i>';
-            }
-            if (p.remarks)   tip += '<br><i>'         + wrapText(p.remarks, 50) + '</i>';
+            if (p.date)         tip += '<br>Date: '   + p.date;
+            if (p.aspect)       tip += '<br>Aspect: ' + p.aspect;
+            if (p.forecast_prob !== null && p.forecast_prob !== undefined)
+                tip += '<br><b>Prob: ' + Math.round(p.forecast_prob * 100) + '%</b>';
             layer.bindTooltip(tip, {sticky: true});
-            layer.on('click', function() {
-                if (p.url) { window.open(p.url, '_blank'); }
-            });
+            layer.on('click', function() { if (p.url) window.open(p.url, '_blank'); });
         }
     """)
 
-    folium.GeoJson(
+    obs_layer = folium.GeoJson(
         {"type": "FeatureCollection", "features": features},
         name='Avalanche Observations',
         point_to_layer=point_to_layer,
         on_each_feature=on_each_feature,
-    ).add_to(m)
+    )
+    obs_layer.add_to(m)
 
-    # ── Map title ─────────────────────────────────────────────────────────────
-    title_date = forecast_date.strftime('%B %d, %Y') if forecast_date is not None else ""
-    title_html = f"""
-    <div style="
-        position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-        z-index: 1000; background: rgba(255,255,255,0.93);
-        padding: 7px 22px; border-radius: 7px; border: 1px solid #bbb;
-        font-family: sans-serif; font-size: 15px; font-weight: bold;
-        box-shadow: 2px 2px 6px rgba(0,0,0,0.18); white-space: nowrap;
-    ">
-        Avalanche Observations &nbsp;|&nbsp; Forecast: {title_date}
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(title_html))
+    # Wire date nav + time-series player → observation layer filtering
+    obs_layer_name = obs_layer.get_name()
+    map_name       = m.get_name()
+    m.get_root().html.add_child(folium.Element(f"""
+    <script>
+    window.addEventListener('load', function() {{
+        var _obsLayer = {obs_layer_name};
+        var _map      = {map_name};
+
+        function _filterObs(features) {{
+            _obsLayer.clearLayers();
+            _obsLayer.addData({{type: 'FeatureCollection', features: features}});
+        }}
+
+        // Date nav: filter by selected observation date (or show all)
+        window._obsRefresh = function() {{
+            var state = window._dateNavState || {{idx: -1, dates: [], features: []}};
+            var show = state.idx === -1
+                ? state.features
+                : state.features.filter(function(f) {{ return f.properties.date === state.dates[state.idx]; }});
+            _filterObs(show);
+        }};
+
+        // Time-series player: poll timeDimension and filter triangles when it advances.
+        // Only applies when the date nav is at "All dates" (idx === -1); date nav takes
+        // priority when a specific date is selected.
+        // _tdObsSeen: skip the first tick so the initial TD time doesn't hide all triangles.
+        var _lastTdTime = null;
+        var _tdObsSeen  = false;
+        var _months = ['January','February','March','April','May','June',
+                       'July','August','September','October','November','December'];
+        setInterval(function() {{
+            if (!_map.timeDimension) return;
+            var state = window._dateNavState || {{idx: -1}};
+            if (state.idx !== -1) return;          // date nav has priority
+            var t = _map.timeDimension.getCurrentTime();
+            if (t === null) return;
+            if (!_tdObsSeen) {{ _tdObsSeen = true; _lastTdTime = t; return; }}
+            if (t === _lastTdTime) return;
+            _lastTdTime = t;
+            var d   = new Date(t);
+            var str = _months[d.getUTCMonth()] + ' '
+                    + String(d.getUTCDate()).padStart(2, '0') + ', '
+                    + d.getUTCFullYear();
+            var all = (window._dateNavState || {{}}).features || [];
+            _filterObs(all.filter(function(f) {{ return f.properties.date === str; }}));
+        }}, 150);
+    }});
+    </script>
+    """))
 
     # ── Forecast window info box + probability legend ─────────────────────────
     if forecast_date is not None:
@@ -616,40 +991,60 @@ def create_avalanche_map(
         <span style="color:#ff7f0e">&#9679;</span> 65 – 80 %<br>
         <span style="color:#d62728">&#9679;</span> 80 – 95 %<br>
         <span style="color:#7b0000">&#9679;</span> &ge; 95 %
+        <hr style="margin:6px 0">
+        <span id="obs-count" style="color:#555"></span>
+        <hr style="margin:6px 0">
+        <b>Simulation stations</b><br>
+        <span style="color:#555;font-size:11px">Ring colour &#8594; probability<br>
+        Solid fill &#8594; <b>Ready</b> (FA &le;10%)<br>
+        Faded fill &#8594; Marginal (FA 10–25%)<br>
+        Ghost fill &#8594; Not ready (FA &gt;25%)</span>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    # ── Date slider: recolour markers by each station's daily probability ─────
-    if prob_by_station and 'station_id' in df.columns:
+    # ── Time-series player: daily probability at each sim station ────────────
+    if prob_by_station and sim_stations:
         from folium.plugins import TimestampedGeoJson
 
+        # Build a coord lookup: station_id → (lon, lat)
+        station_coords = {s['id']: (s['lon'], s['lat']) for s in sim_stations}
+
         ts_features: list[dict] = []
-        for _, row in df.iterrows():
-            series = prob_by_station.get(row.get('station_id'))
-            if series is None:
+        for sid, series in prob_by_station.items():
+            coords = station_coords.get(sid)
+            if coords is None:
                 continue
             clean = series.dropna()
             for ts, p in clean.items():
                 fill, stroke = _prob_to_colors(float(p))
                 ts_features.append({
                     "type": "Feature",
-                    "geometry": {"type": "Point",
-                                 "coordinates": [row['Longitude'], row['Latitude']]},
+                    "geometry": {"type": "Point", "coordinates": list(coords)},
                     "properties": {
-                        "times": [pd.Timestamp(ts).strftime('%Y-%m-%d')],
-                        "icon": "circle",
+                        "times":     [pd.Timestamp(ts).strftime('%Y-%m-%d')],
+                        "icon":      "circle",
                         "iconstyle": {
                             "fillColor": fill, "color": stroke,
                             "fillOpacity": 0.85, "weight": 1.5, "radius": 8,
                         },
-                        "popup": (f"<b>{row['Placemark Name']}</b><br>"
+                        "popup": (f"<b>{sid.replace('_res','')}</b><br>"
                                   f"{pd.Timestamp(ts).strftime('%b %d, %Y')}<br>"
-                                  f"Prob: {float(p) * 100:.0f}%"),
+                                  f"Prob: {float(p)*100:.0f}%"),
                     },
                 })
 
+        td_layer_js_name: str | None = None
         if ts_features:
+            # Circles are invisible (weight=0, fillOpacity=0) — they exist only to
+            # populate the time dimension so the time slider works.  _simLayer
+            # (in _sim_layer_html) is the sole visual layer and recolours itself via
+            # a setInterval that polls timeDimension.getCurrentTime().
+            for f in ts_features:
+                f["properties"]["iconstyle"] = {
+                    "fillColor": "transparent", "color": "transparent",
+                    "fillOpacity": 0, "weight": 0, "radius": 1,
+                }
             TimestampedGeoJson(
                 {"type": "FeatureCollection", "features": ts_features},
                 period="P1D", duration="P1D", transition_time=150,
@@ -658,5 +1053,27 @@ def create_avalanche_map(
                 add_last_point=False,
             ).add_to(m)
 
-    folium.LayerControl().add_to(m)
+    # Serialise prob_by_station time series for _sim_layer_html's time-player polling.
+    import json as _json
+    prob_series_dict: dict[str, dict[str, float]] = {}
+    if prob_by_station:
+        for sid, series in prob_by_station.items():
+            clean = series.dropna()
+            prob_series_dict[sid] = {
+                pd.Timestamp(ts).strftime('%Y-%m-%d'): round(float(p), 4)
+                for ts, p in clean.items()
+            }
+
+    layer_ctrl = folium.LayerControl()
+    layer_ctrl.add_to(m)
+
+    # ── Simulation stations overlay (aspect-filterable) ───────────────────────
+    if sim_stations:
+        m.get_root().html.add_child(
+            folium.Element(_sim_layer_html(
+                m.get_name(), layer_ctrl.get_name(), sim_stations,
+                _json.dumps(prob_series_dict),
+            ))
+        )
+
     m.save(str(output_path))

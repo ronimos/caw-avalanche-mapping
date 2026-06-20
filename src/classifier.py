@@ -177,6 +177,7 @@ def evaluate_event_level(
     "did it correctly classify every individual day?"
 
     Args:
+    
         station_probs:    station_id → daily probability Series.
         station_events:   station_id → avalanche event dates.
         pre_event_window: days before (and including) the event to consider.

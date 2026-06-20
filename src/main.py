@@ -13,7 +13,7 @@ from classifier import (aggregate_predictions, blend_probabilities,
                         evaluate_event_level, evaluate_regional, evaluate_station,
                         predict_proba_series, train_regional, train_station)
 from features import build_daily_features
-from snowpack_io import find_nearest_pro, parse_snow_data
+from snowpack_io import extract_pro_coordinates, find_nearest_pro, parse_snow_data
 from visualization import create_avalanche_map, plot_interactive_stability
 
 # ── season config ─────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ def _load_observations(obs_dir: Path) -> pd.DataFrame:
         'Place': 'Placemark Name',
     })
     combined['date'] = (
-        pd.to_datetime(combined['Date'], errors='coerce')
+        pd.to_datetime(combined['Date'], errors='coerce', format='mixed')
         .dt.strftime('%B %d, %Y').fillna('')
     )
     return combined
@@ -210,7 +210,7 @@ def main() -> None:
     sim_dir       = sims_root / SEASON
     obs_dir       = root_dir / "data" / "observations"
     out_dir       = root_dir / "output"
-    stability_dir = out_dir / "assets" / SEASON
+    stability_dir = root_dir / "assets" / SEASON
     models_dir    = root_dir / "models"
 
     stability_dir.mkdir(parents=True, exist_ok=True)
@@ -450,6 +450,8 @@ def main() -> None:
         else:
             print("  No stations had sufficient test data for evaluation.")
 
+    regional_prob_dict: dict[str, pd.Series] = {}
+
     # --- Regional pooled model ---
     # Train on all 2024-25 stations combined; evaluate on all 2025-26 observations.
     if train_features_dict:
@@ -486,7 +488,7 @@ def main() -> None:
             test_features = {pf.stem: df for pf, df in daily_dict.items()}
 
             # Per-station regional probabilities (needed for blending)
-            regional_prob_dict: dict[str, pd.Series] = {
+            regional_prob_dict = {
                 sid: predict_proba_series(reg_model, reg_scaler, df)
                 for sid, df in test_features.items()
             }
@@ -612,7 +614,6 @@ def main() -> None:
                               "hierarchical_uncertainty.csv")
 
             # --- Event-level Precision-Recall curves (3-day pre-event window) ---
-            PRE_EVENT_WINDOW = 3
             print(f"\nGenerating event-level PR curves "
                   f"(pre-event window = {PRE_EVENT_WINDOW} days)...")
 
@@ -913,30 +914,146 @@ def main() -> None:
                 plt.close(fig)
                 print(f"  → saved operational_thresholds.png")
 
-    # --- Attach max forecast-window probability to each observation ---
+    # --- Operational fit: blended model trained on entire 2025-26 dataset -------
+    # Collects ALL 2025-26 observations (train + test splits) as labels, then fits
+    # per-station and regional models on the current-season features so the map
+    # shows the best available estimate rather than a held-out evaluation model.
+
+    op_event_dates: dict[str, list] = {}
+    for _idx, (_, _row) in enumerate(df_all.iterrows()):
+        _pf = matched_pro_files[_idx]
+        if _pf is None or _row['source_season'] != SEASON:
+            continue
+        _rd = pd.to_datetime(_row.get('Date', ''), errors='coerce')
+        if pd.isna(_rd):
+            continue
+        op_event_dates.setdefault(_pf.stem, [])
+        if _rd not in op_event_dates[_pf.stem]:
+            op_event_dates[_pf.stem].append(_rd)
+
+    n_op_events = sum(len(v) for v in op_event_dates.values())
+    print(f"\nFitting operational blended model on full {SEASON} dataset "
+          f"({n_op_events} events across {len(op_event_dates)} stations)...")
+
+    # Per-station operational models (2025-26 features + all 2025-26 event dates)
+    op_ml_stations: set[str] = set()
+    op_prob_dict:   dict[str, pd.Series] = {}
+    for _pf in sorted(unique_pro_files):
+        _sid   = _pf.stem
+        _daily = daily_dict.get(_pf)
+        if _daily is None:
+            continue
+        _ev = op_event_dates.get(_sid, [])
+        if _ev:
+            _fitted_op = train_station(_daily, _ev, verbose=False)
+            if _fitted_op is not None:
+                _m, _sc = _fitted_op
+                op_prob_dict[_sid] = predict_proba_series(_m, _sc, _daily)
+                op_ml_stations.add(_sid)
+
+    # Operational regional model (pools all 2025-26 stations)
+    _op_feats = {_pf.stem: _df for _pf, _df in daily_dict.items()}
+    print(f"  Training operational regional model...")
+    _op_reg_fitted = train_regional(_op_feats, op_event_dates)
+    op_reg_prob_dict: dict[str, pd.Series] = {}
+    if _op_reg_fitted is not None:
+        _op_rm, _op_rsc = _op_reg_fitted
+        op_reg_prob_dict = {
+            _sid: predict_proba_series(_op_rm, _op_rsc, _df)
+            for _sid, _df in _op_feats.items()
+        }
+
+    # Blended: per-station weighted by event count, backed by regional, then Sn38
+    op_blended_dict: dict[str, pd.Series] = {}
+    for _pf in sorted(unique_pro_files):
+        _sid   = _pf.stem
+        _daily = daily_dict.get(_pf)
+        if _daily is None:
+            continue
+        _p_reg = op_reg_prob_dict.get(_sid)
+        _p_sta = op_prob_dict.get(_sid) if _sid in op_ml_stations else None
+        _n_ev  = len(op_event_dates.get(_sid, []))
+        if _p_reg is not None:
+            op_blended_dict[_sid] = blend_probabilities(_p_sta, _p_reg, _n_ev)
+        elif _p_sta is not None:
+            op_blended_dict[_sid] = _p_sta
+        else:
+            if 'sn38_min' in _daily.columns:
+                _sn38 = _daily['sn38_min'].fillna(3.0)
+                op_blended_dict[_sid] = 1.0 / (1.0 + np.exp(2.0 * (_sn38 - 1.0)))
+
+    # Update regional overlay with operational probs; is_ready = has per-station ML model
+    regional_prob_dict = op_reg_prob_dict
+    _ml_pro_files: set[Path] = {_pf for _pf in unique_pro_files if _pf.stem in op_ml_stations}
+
+    # Map-facing probability series and forecast-window values
+    prob_by_station: dict[str, pd.Series] = op_blended_dict
     forecast_probs: list[float] = []
     for pf in matched_pro_files:
-        if pf is None or pf not in prob_series_dict:
+        _sid = pf.stem if pf is not None else None
+        if _sid is None or _sid not in prob_by_station:
             forecast_probs.append(float('nan'))
         else:
-            s      = prob_series_dict[pf]
+            s      = prob_by_station[_sid]
             window = s[(s.index >= win_start) & (s.index <= win_end)]
             forecast_probs.append(
                 float(window.max()) if not window.dropna().empty else float('nan')
             )
     df_all['forecast_prob'] = forecast_probs
-
-    # Station id per observation + daily probability series keyed by station id,
-    # so the map can offer a date slider that recolours markers per date.
     df_all['station_id'] = [pf.stem if pf is not None else None
                             for pf in matched_pro_files]
-    prob_by_station = {pf.stem: s for pf, s in prob_series_dict.items()}
+
+    # --- Build per-station simulation metadata for the map overlay ---
+    # Confidence tiers from §4.5 (false alarm rate at recall-maximising threshold).
+    _READY_STATIONS    = {'160942_res', '153203_res', '180343_res', '164801_res'}
+    _MARGINAL_STATIONS = {'272401_res', '176522_res', '250224_res'}
+    # All other stations → 'not_ready'
+
+    _ASPECT_SUFFIX = {'1': 'N', '2': 'E', '3': 'S', '4': 'W'}
+    sim_stations: list[dict] = []
+    for pro_file in sorted(sim_dir.glob('*.pro')):
+        coords = extract_pro_coordinates(pro_file)
+        if coords is None:
+            continue
+        lat, lon = coords
+        stem    = pro_file.stem                          # e.g. "180343_res"
+        numeric = stem.replace('_res', '')
+        aspect  = _ASPECT_SUFFIX.get(numeric[-1:], 'Flat') if numeric else 'Flat'
+        prob    = None
+        if stem in prob_by_station:
+            s = prob_by_station[stem]
+            win = s[(s.index >= win_start) & (s.index <= win_end)]
+            v   = float(win.max()) if not win.dropna().empty else None
+            prob = round(v, 4) if v is not None else None
+        reg_prob = None
+        if stem in regional_prob_dict:
+            s_reg = regional_prob_dict[stem]
+            win_reg = s_reg[(s_reg.index >= win_start) & (s_reg.index <= win_end)]
+            v_reg   = float(win_reg.max()) if not win_reg.dropna().empty else None
+            reg_prob = round(v_reg, 4) if v_reg is not None else None
+        if stem in _READY_STATIONS:
+            tier = 'ready'
+        elif stem in _MARGINAL_STATIONS:
+            tier = 'marginal'
+        else:
+            tier = 'not_ready'
+        sim_stations.append({
+            'id':               stem,
+            'lat':              lat,
+            'lon':              lon,
+            'aspect':           aspect,
+            'forecast_prob':    prob,
+            'confidence_tier':  tier,
+            'regional_prob':    reg_prob,
+            'url':              f"assets/{SEASON}/stability_{stem}.html",
+        })
 
     # --- Generate the map ---
-    map_path = out_dir / "avalanche_map.html"
+    map_path = root_dir / "index.html"
     print(f"\nGenerating map → {map_path}")
     create_avalanche_map(df_all, map_path, forecast_date=forecast_date,
-                         prob_by_station=prob_by_station)
+                         prob_by_station=prob_by_station,
+                         sim_stations=sim_stations)
 
     print("\nDone.")
     print(f"Open {map_path} and click any marker to view its nearest station's stability.")
