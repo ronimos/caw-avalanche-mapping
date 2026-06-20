@@ -32,6 +32,26 @@ from visualization import create_avalanche_map, plot_interactive_stability
 SEASON       = "2025-2026"
 TRAIN_SEASON = "2024-2025"
 
+# Confidence tiers from §4.5 operational threshold analysis (FA rate at
+# recall-maximising threshold).  Used both in the map overlay and plot titles.
+READY_STATIONS    = frozenset({'160942_res', '153203_res', '180343_res', '164801_res'})
+MARGINAL_STATIONS = frozenset({'272401_res', '176522_res', '250224_res'})
+
+_ASPECT_SUFFIX = {'1': 'N', '2': 'E', '3': 'S', '4': 'W'}
+
+
+def _station_aspect(stem: str) -> str:
+    numeric = stem.replace('_res', '')
+    return _ASPECT_SUFFIX.get(numeric[-1:], 'Flat') if numeric else 'Flat'
+
+
+def _station_tier(stem: str) -> str:
+    if stem in READY_STATIONS:
+        return 'ready'
+    if stem in MARGINAL_STATIONS:
+        return 'marginal'
+    return 'not_ready'
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -396,6 +416,8 @@ def main() -> None:
                 prob_series=prob_series_dict.get(pro_file),
                 daily_df=daily,
                 forecast_date=forecast_date,
+                aspect=_station_aspect(station_id),
+                confidence_tier=_station_tier(station_id),
             )
             print(f"  → {out_path}")
 
@@ -1018,21 +1040,13 @@ def main() -> None:
                             for pf in matched_pro_files]
 
     # --- Build per-station simulation metadata for the map overlay ---
-    # Confidence tiers from §4.5 (false alarm rate at recall-maximising threshold).
-    _READY_STATIONS    = {'160942_res', '153203_res', '180343_res', '164801_res'}
-    _MARGINAL_STATIONS = {'272401_res', '176522_res', '250224_res'}
-    # All other stations → 'not_ready'
-
-    _ASPECT_SUFFIX = {'1': 'N', '2': 'E', '3': 'S', '4': 'W'}
     sim_stations: list[dict] = []
     for pro_file in sorted(sim_dir.glob('*.pro')):
         coords = extract_pro_coordinates(pro_file)
         if coords is None:
             continue
         lat, lon = coords
-        stem    = pro_file.stem                          # e.g. "180343_res"
-        numeric = stem.replace('_res', '')
-        aspect  = _ASPECT_SUFFIX.get(numeric[-1:], 'Flat') if numeric else 'Flat'
+        stem    = pro_file.stem
         prob    = None
         if stem in prob_by_station:
             s = prob_by_station[stem]
@@ -1045,19 +1059,13 @@ def main() -> None:
             win_reg = s_reg[(s_reg.index >= win_start) & (s_reg.index <= win_end)]
             v_reg   = float(win_reg.max()) if not win_reg.dropna().empty else None
             reg_prob = round(v_reg, 4) if v_reg is not None else None
-        if stem in _READY_STATIONS:
-            tier = 'ready'
-        elif stem in _MARGINAL_STATIONS:
-            tier = 'marginal'
-        else:
-            tier = 'not_ready'
         sim_stations.append({
             'id':               stem,
             'lat':              lat,
             'lon':              lon,
-            'aspect':           aspect,
+            'aspect':           _station_aspect(stem),
             'forecast_prob':    prob,
-            'confidence_tier':  tier,
+            'confidence_tier':  _station_tier(stem),
             'regional_prob':    reg_prob,
             'url':              f"assets/{SEASON}/stability_{stem}.html",
         })

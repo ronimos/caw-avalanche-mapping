@@ -87,32 +87,18 @@ def plot_interactive_stability(
     prob_series: pd.Series | None = None,
     daily_df: pd.DataFrame | None = None,
     forecast_date: pd.Timestamp | None = None,
+    aspect: str = "",
+    confidence_tier: str = "",
 ) -> None:
     """
     Generates an interactive Plotly HTML stability chart.
 
-    Panel 1 — Snow stratigraphy: HS surface, dominant weak layers coloured by
-               Sn38 (circle = upper zone, diamond = lower zone), dynamic zone
-               boundary, and faint blue bands on rain days.
-    Panel 2 — Loading (optional, requires daily_df): daily new snow bars (HN24)
-               with air temperature (TA) on a secondary axis and a 0 °C line.
-    Panel 3 — Probability (optional, requires prob_series): daily avalanche
-               probability with threshold lines at 50 % / 65 % / 80 % / 95 %.
-
-    Vertical dashed red lines mark training event dates on all panels.
-    Vertical dashed blue lines mark held-out test event dates on all panels.
-    A green highlight band marks the forecast window (±1/+2 days around
-    forecast_date) with a dashed "now" line on all panels.
-
-    Args:
-        df:            Output of parse_snow_data().
-        output_path:   Destination HTML file.
-        station_id:    Label shown in the chart title.
-        event_dates:   Training avalanche dates (red lines).
-        test_dates:    Held-out test avalanche dates (blue lines).
-        prob_series:   Daily probability Series (index=date, values 0–1).
-        daily_df:      Output of build_daily_features() — used for loading panel.
-        forecast_date: Reference date for the forecast window highlight.
+    Panel 1 — Probability (top, requires prob_series): blended model daily
+               avalanche probability for the current season, with threshold lines.
+    Panel 2 — Snow stratigraphy: HS surface, dominant weak layers coloured by
+               Sn38 (circle = upper zone, diamond = lower zone).
+    Panel 3 — Loading (optional, requires daily_df): daily new snow (HN24) and
+               air temperature (TA).
     """
     dominant = _get_dominant_layers(df)
     hs_ts    = df.groupby(df.index)['total_height'].first()
@@ -127,12 +113,23 @@ def plot_interactive_stability(
     has_prob    = prob_series is not None and not prob_series.dropna().empty
     has_loading = daily_df is not None and not daily_df.empty
 
-    # ── Build subplot layout ──────────────────────────────────────────────────
-    row_keys: list[str] = ['strat']
-    if has_loading:
-        row_keys.append('load')
+    # Clip prob_series to the current-season date range from df so the timeline
+    # never shows historical seasons even when the series spans multiple seasons.
+    x_min_raw = df.index.min()
+    x_max_raw = df.index.max()
+    if has_prob and prob_series is not None:
+        prob_series = prob_series[
+            (prob_series.index >= x_min_raw) & (prob_series.index <= x_max_raw)
+        ]
+        has_prob = not prob_series.dropna().empty
+
+    # ── Build subplot layout: prob on top, then strat, then loading ───────────
+    row_keys: list[str] = []
     if has_prob:
         row_keys.append('prob')
+    row_keys.append('strat')
+    if has_loading:
+        row_keys.append('load')
 
     n_rows = len(row_keys)
     specs  = [[{"secondary_y": True} if k == 'load' else {}] for k in row_keys]
@@ -140,14 +137,14 @@ def plot_interactive_stability(
     if n_rows == 1:
         row_heights = [1.0]
     elif n_rows == 2:
-        row_heights = [0.60, 0.40]
+        row_heights = [0.40, 0.60] if row_keys[0] == 'prob' else [0.60, 0.40]
     else:
-        row_heights = [0.50, 0.25, 0.25]
+        row_heights = [0.35, 0.40, 0.25]
 
     panel_titles = {
+        'prob':  "Avalanche Probability — 2025–26 Season",
         'strat': "Snow Stratigraphy — Weak Layers by Height",
         'load':  "New Snow (HN24) & Air Temperature",
-        'prob':  "Avalanche Probability",
     }
 
     fig = make_subplots(
@@ -163,8 +160,8 @@ def plot_interactive_stability(
     load_row  = row_keys.index('load') + 1 if 'load' in row_keys else None
     prob_row  = row_keys.index('prob') + 1 if 'prob' in row_keys else None
 
-    x_min = df.index.min()
-    x_max = df.index.max()
+    x_min = x_min_raw
+    x_max = x_max_raw
 
     # ── Panel 1: Stratigraphy ─────────────────────────────────────────────────
 
@@ -386,15 +383,28 @@ def plot_interactive_stability(
     # ── Layout ────────────────────────────────────────────────────────────────
     fig.update_yaxes(title_text="Height from ground (cm)", row=strat_row, col=1)
 
-    height = {1: 750, 2: 950, 3: 1100}.get(n_rows, 1100)
+    height = {1: 500, 2: 750, 3: 1000}.get(n_rows, 1000)
 
-    # Rangeslider on loading panel when present, otherwise on bottom panel
-    slider_row = load_row if load_row else (prob_row if prob_row else strat_row)
+    # Rangeslider on the bottom-most panel.
+    slider_row = load_row if load_row else strat_row
     slider_key = f"xaxis{slider_row}_rangeslider_visible" if slider_row > 1 else "xaxis_rangeslider_visible"
+
+    # Build title: station, aspect, confidence
+    sid_clean  = station_id.replace('_res', '')
+    tier_label = {'ready': 'Ready', 'marginal': 'Marginal', 'not_ready': 'Not ready'}.get(
+        confidence_tier, ''
+    )
+    title_parts = [f"Station {sid_clean}"]
+    if aspect:
+        title_parts.append(f"Aspect: {aspect}")
+    if tier_label:
+        title_parts.append(f"Confidence: {tier_label}")
+    title_text = "  |  ".join(title_parts)
 
     fig.update_layout(
         height=height,
-        title_text=f"Stability Analysis — Station {station_id}",
+        title_text=title_text,
+        title_font=dict(size=14),
         template="plotly_white",
         hovermode="x unified",
         xaxis_range=[x_min, x_max],
