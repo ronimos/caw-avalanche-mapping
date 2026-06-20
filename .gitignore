@@ -13,8 +13,9 @@ wheels/
 .venv
 
 # Generated output
-output/
 plots/
+outpts/
+*.csv
 
 # Trained model files (regenerate with: python src/main.py --retrain)
 models/

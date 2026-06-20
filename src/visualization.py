@@ -113,8 +113,8 @@ def plot_interactive_stability(
     has_prob    = prob_series is not None and not prob_series.dropna().empty
     has_loading = daily_df is not None and not daily_df.empty
 
-    # Clip prob_series to the current-season date range from df so the timeline
-    # never shows historical seasons even when the series spans multiple seasons.
+    # Pin the x-axis to the current-season .pro file date range so that no
+    # historical-season data from the combined prob_series or daily_df bleeds in.
     x_min_raw = df.index.min()
     x_max_raw = df.index.max()
     if has_prob and prob_series is not None:
@@ -122,6 +122,11 @@ def plot_interactive_stability(
             (prob_series.index >= x_min_raw) & (prob_series.index <= x_max_raw)
         ]
         has_prob = not prob_series.dropna().empty
+    if has_loading and daily_df is not None:
+        daily_df = daily_df[
+            (daily_df.index >= x_min_raw) & (daily_df.index <= x_max_raw)
+        ]
+        has_loading = not daily_df.empty
 
     # ── Build subplot layout: prob on top, then strat, then loading ───────────
     row_keys: list[str] = []
@@ -408,10 +413,13 @@ def plot_interactive_stability(
         template="plotly_white",
         hovermode="x unified",
         xaxis_range=[x_min, x_max],
+        xaxis_autorange=False,
         **{slider_key: True, slider_key.replace("visible", "thickness"): 0.04},
         legend=dict(orientation='h', y=-0.08),
         bargap=0.15,
     )
+    # Enforce range on every x-axis in the figure (shared axes get their own key)
+    fig.update_xaxes(range=[x_min, x_max], autorange=False)
     fig.write_html(str(output_path))
 
 
@@ -614,6 +622,23 @@ def _sim_layer_html(
                 + String(d.getUTCDate()).padStart(2, '0');
         }}
 
+        // Return the max value in series ({{YYYY-MM-DD: prob}}) within ±halfDays of isoDate.
+        function _maxProbInWindow(series, isoDate, halfDays) {{
+            var centre = new Date(isoDate + 'T00:00:00Z');
+            if (isNaN(centre)) return undefined;
+            var best;
+            for (var d = -halfDays; d <= halfDays; d++) {{
+                var dt  = new Date(centre.getTime() + d * 86400000);
+                var key = dt.getUTCFullYear() + '-'
+                    + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-'
+                    + String(dt.getUTCDate()).padStart(2, '0');
+                var p = series[key];
+                if (p !== undefined && (best === undefined || p > best)) best = p;
+            }}
+            return best;
+        }}
+        window._maxProbInWindow = _maxProbInWindow;  // shared with obs script
+
         // tdDate: "YYYY-MM-DD" from time player, or null/undefined for forecast window.
         function _doSimRefresh(tdDate) {{
             var state = window._dateNavState || {{idx: -1, features: [], dates: []}};
@@ -623,17 +648,17 @@ def _sim_layer_html(
             var probOverride = null;
 
             if (state.idx !== -1) {{
-                // Date nav active: recolour all stations from PROB_SERIES for this date.
+                // Date nav active: recolour all stations by max prob in ±3-day window.
                 var isoDate = _navDateToISO(state.dates[state.idx]);
                 if (isoDate) {{
                     probOverride = {{}};
                     _SIM.forEach(function(s) {{
-                        var p = (_PROB_SERIES[s.id] || {{}})[isoDate];
+                        var p = _maxProbInWindow(_PROB_SERIES[s.id] || {{}}, isoDate, 3);
                         if (p !== undefined) probOverride[s.id] = p;
                     }});
                 }}
             }} else if (tdDate) {{
-                // Time player: look up each station's prob for that specific date.
+                // Time player: exact date (preserves day-by-day resolution).
                 probOverride = {{}};
                 _SIM.forEach(function(s) {{
                     var p = (_PROB_SERIES[s.id] || {{}})[tdDate];
@@ -958,8 +983,9 @@ def create_avalanche_map(
             _obsLayer.addData({{type: 'FeatureCollection', features: features}});
         }}
 
-        // Date nav: filter to selected date and recolour triangles by that day's
-        // station probability (not the fixed forecast-window value).
+        var _maxProbInWindowObs = window._maxProbInWindow || function(s, d, h) {{ return s[d]; }};
+
+        // Date nav: filter to selected date and recolour triangles by max prob in ±3-day window.
         window._obsRefresh = function() {{
             var state = window._dateNavState || {{idx: -1, dates: [], features: []}};
             if (state.idx === -1) {{
@@ -973,9 +999,8 @@ def create_avalanche_map(
                 .map(function(f) {{
                     if (!isoDate) return f;
                     var sid = f.properties.station_id;
-                    var p   = sid ? (_OBS_PROB_SERIES[sid] || {{}})[isoDate] : undefined;
+                    var p   = sid ? _maxProbInWindowObs(_OBS_PROB_SERIES[sid] || {{}}, isoDate, 3) : undefined;
                     if (p === undefined) return f;
-                    // Return a shallow clone with forecast_prob replaced by the daily value.
                     return {{
                         type: f.type,
                         geometry: f.geometry,

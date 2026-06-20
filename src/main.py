@@ -337,6 +337,7 @@ def main() -> None:
     fitted_dict:       dict[Path, tuple]        = {}
     daily_dict:        dict[Path, pd.DataFrame] = {}
     train_features_dict: dict[str, pd.DataFrame] = {}  # station_id → 2024-25 features
+    plot_queue: list[dict] = []  # deferred until prob_by_station is available
 
     if not unique_pro_files:
         print("No .pro files matched — stability plots skipped.")
@@ -408,18 +409,15 @@ def main() -> None:
                     prob = predict_proba_series(model, scaler, daily)
                     prob_series_dict[pro_file] = prob
 
-            print(f"  Plotting {pro_file.name}...")
-            plot_interactive_stability(
-                parse_snow_data(pro_file), out_path, station_id,
-                event_dates=train_event_dates,
-                test_dates=test_event_dates,
-                prob_series=prob_series_dict.get(pro_file),
-                daily_df=daily,
-                forecast_date=forecast_date,
-                aspect=_station_aspect(station_id),
-                confidence_tier=_station_tier(station_id),
-            )
-            print(f"  → {out_path}")
+            plot_queue.append({
+                'pro_file':        pro_file,
+                'out_path':        out_path,
+                'station_id':      station_id,
+                'event_dates':     train_event_dates,
+                'test_dates':      test_event_dates,
+                'daily_df':        daily,
+                'forecast_date':   forecast_date,
+            })
 
     # --- Evaluate on held-out test set ---
     stations_with_test = [
@@ -1024,6 +1022,27 @@ def main() -> None:
 
     # Map-facing probability series and forecast-window values
     prob_by_station: dict[str, pd.Series] = op_blended_dict
+
+    # --- Generate stability plots (deferred so prob_by_station is available) ---
+    if plot_queue:
+        print(f"\nGenerating {len(plot_queue)} stability plots...")
+        for item in plot_queue:
+            sid = item['station_id']
+            print(f"  Plotting {item['pro_file'].name}...")
+            plot_interactive_stability(
+                parse_snow_data(item['pro_file']),
+                item['out_path'],
+                sid,
+                event_dates=item['event_dates'],
+                test_dates=item['test_dates'],
+                prob_series=prob_by_station.get(sid),
+                daily_df=item['daily_df'],
+                forecast_date=item['forecast_date'],
+                aspect=_station_aspect(sid),
+                confidence_tier=_station_tier(sid),
+            )
+            print(f"  → {item['out_path']}")
+
     forecast_probs: list[float] = []
     for pf in matched_pro_files:
         _sid = pf.stem if pf is not None else None
