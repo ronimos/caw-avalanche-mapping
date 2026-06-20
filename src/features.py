@@ -27,7 +27,7 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
     """
     Combine .pro and .smet data into a daily feature DataFrame for one station.
 
-    .smet  → HS, HN24, HN72, rain_sum, TA_max  (aggregated from sub-daily to daily)
+    .smet  → HS, HN24, rain_sum, TA_max  (aggregated from sub-daily to daily)
     .pro   → sn38_upper_min, sn38_lower_min, depth_lower_wl  (daily extremes)
 
     Returns a DataFrame indexed by date (midnight).
@@ -38,11 +38,10 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
 
     # Select and rename .smet columns we care about
     smet_rename = {
-        'HS_mod':   'HS',
-        'HN24':     'HN24',
-        'HN72_24':  'HN72',
-        'MS_Rain':  'rain_rate',
-        'TA':       'TA',
+        'HS_mod':  'HS',
+        'HN24':    'HN24',
+        'MS_Rain': 'rain_rate',
+        'TA':      'TA',
     }
     present  = {k: v for k, v in smet_rename.items() if k in smet_df.columns}
     smet_sub = smet_df[list(present.keys())].rename(columns=present)
@@ -50,8 +49,7 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
     agg_map: dict[str, str] = {}
     if 'HS'        in smet_sub: agg_map['HS']        = 'max'
     if 'HN24'      in smet_sub: agg_map['HN24']      = 'max'
-    if 'HN72'      in smet_sub: agg_map['HN72']      = 'max'
-    if 'rain_rate' in smet_sub: agg_map['rain_rate']  = 'sum'
+    if 'rain_rate' in smet_sub: agg_map['rain_rate'] = 'sum'
     if 'TA'        in smet_sub: agg_map['TA']        = 'max'
 
     smet_daily = smet_sub.resample('D').agg(agg_map)  # type: ignore[arg-type]
@@ -59,9 +57,6 @@ def build_daily_features(pro_path: Path, smet_path: Path) -> pd.DataFrame:
         smet_daily = smet_daily.rename(columns={'rain_rate': 'rain_sum'})
     if 'TA' in smet_daily.columns:
         smet_daily = smet_daily.rename(columns={'TA': 'TA_max'})
-    if 'TA_max' in smet_daily.columns:
-        # 1 = above-freezing day (wet-avalanche regime), 0 = cold/dry
-        smet_daily['wet_flag'] = (smet_daily['TA_max'] > 0).astype(float)
 
     zone_daily = zone_df.resample('D').agg({  # type: ignore[arg-type]
         'sn38_upper_min': 'min',

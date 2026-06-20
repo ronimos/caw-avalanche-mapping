@@ -5,6 +5,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from sklearn.metrics import (average_precision_score, f1_score,
                              precision_recall_curve, precision_score,
                              recall_score, roc_auc_score)
@@ -915,7 +916,6 @@ def main() -> None:
                               '(bubble size ∝ training folds)', fontsize=11)
                 ax2.set_xlim(-0.05, 1.05)
                 ax2.set_ylim(-3, 105)
-                from matplotlib.patches import Patch
                 ax2.legend(handles=[
                     Patch(color='#2ca02c', label='Ready  (FA ≤ 10%)'),
                     Patch(color='#ff7f0e', label='Marginal  (10–25%)'),
@@ -1016,9 +1016,8 @@ def main() -> None:
             _sn38 = _ref['sn38_min'].fillna(3.0)
             op_blended_dict[_sid] = 1.0 / (1.0 + np.exp(2.0 * (_sn38 - 1.0)))
 
-    # Update regional overlay with operational probs; is_ready = has per-station ML model
+    # Update regional overlay with operational probs
     regional_prob_dict = op_reg_prob_dict
-    _ml_pro_files: set[Path] = {_pf for _pf in unique_pro_files if _pf.stem in op_ml_stations}
 
     # Map-facing probability series and forecast-window values
     prob_by_station: dict[str, pd.Series] = op_blended_dict

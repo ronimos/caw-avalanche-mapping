@@ -21,21 +21,6 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 from sklearn.preprocessing import StandardScaler
 
 
-# Full 9-feature set — retained for comparison / ablation, but no longer the
-# default.  With ~32 positive training days this set badly over-parameterizes
-# the model (≈3.5 events per predictor vs. the 10–20 rule of thumb).
-FULL_FEATURE_COLS = [
-    'HS',             # total snow height (m)  — size proxy; varies with start-zone distance
-    'HN24',           # new snow last 24 h (m) — loading signal
-    'HN72',           # new snow last 3 days (m) — sustained loading
-    'rain_sum',       # daily sum of rain rate — rain-trigger signal
-    'TA_max',         # daily max air temp (°C) — phase proxy
-    'wet_flag',       # 1 if TA_max > 0 — explicit wet vs dry mechanism indicator
-    'sn38_upper_min', # min Sn38 in upper zone — near-surface weakness
-    'sn38_lower_min', # min Sn38 in lower zone — deep persistent weakness
-    'depth_lower_wl', # burial depth of weakest lower-zone layer (cm)
-]
-
 # Reduced 5-feature set (default).  Each feature is physically distinct, chosen
 # to minimize collinearity given the small event count:
 #   - dropped HN72 (collinear with HN24)
@@ -113,7 +98,7 @@ def predict_proba_series(
     """
     Return a daily probability Series for a single station.
 
-    Core weather features (HS, HN*, rain_sum, TA_max, wet_flag) must be non-NaN
+    Core weather features (HS, HN24, TA_max) must be non-NaN
     for a day to be predicted.  Zone features (sn38_*, depth_lower_wl) that are
     NaN — e.g. on thin-snowpack days where no qualifying layers exist — are
     imputed with the training mean (zero after StandardScaler), representing
@@ -177,7 +162,6 @@ def evaluate_event_level(
     "did it correctly classify every individual day?"
 
     Args:
-    
         station_probs:    station_id → daily probability Series.
         station_events:   station_id → avalanche event dates.
         pre_event_window: days before (and including) the event to consider.

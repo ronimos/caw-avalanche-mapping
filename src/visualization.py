@@ -6,12 +6,14 @@ Provides:
   - create_avalanche_map        Folium map of avalanche observations.
 """
 
+import json
 import math
 from pathlib import Path
 
 import folium
 import pandas as pd
 import plotly.graph_objects as go
+from folium.plugins import Geocoder, TimestampedGeoJson
 from plotly.subplots import make_subplots
 
 
@@ -521,8 +523,7 @@ def _sim_layer_html(
         The TimestampedGeoJson layer drives the time slider but its own circles are
         hidden (weight 0, fillOpacity 0) — _simLayer is the sole visual layer.
     """
-    import json as _json
-    stations_js = _json.dumps(stations)
+    stations_js = json.dumps(stations)
     return f"""
     <div id="aspect-filter" style="
         position: fixed; bottom: 40px; right: 12px; z-index: 1000;
@@ -798,17 +799,6 @@ def _sim_layer_html(
     """
 
 
-def _prob_to_colors(p: float | None) -> tuple[str, str]:
-    """Map a probability to (fill, stroke) colours — mirrors the map's JS scale."""
-    if p is None or (isinstance(p, float) and math.isnan(p)):
-        return '#808080', '#505050'
-    if p >= 0.80: return '#7b0000', '#3d0000'
-    if p >= 0.65: return '#d62728', '#8b0000'
-    if p >= 0.50: return '#ff7f0e', '#b35a00'
-    if p >= 0.33: return '#e6c200', '#9e8600'
-    return '#2ca02c', '#1a6b1a'
-
-
 def create_avalanche_map(
     df: pd.DataFrame,
     output_path: Path,
@@ -818,38 +808,28 @@ def create_avalanche_map(
     sim_stations: list[dict] | None = None,
 ) -> None:
     """
-    Creates a Folium map with circle markers for each avalanche observation.
-    Marker colour reflects the maximum avalanche probability within the forecast
-    window (forecast_date − 1 day to forecast_date + 2 days):
-      gray        — no classifier available
-      green       — < 50 %
-      gold        — 50–65 %
-      orange      — 65–80 %
-      red         — 80–95 %
-      dark red    — ≥ 95 %
+    Build and write a Folium forecast map.
 
-    Hovering shows name, date, aspect, elevation, size, and remarks.
-    Clicking opens the linked stability HTML in a new tab.
-
-    When `prob_by_station` is supplied, the map also gains a date slider
-    (TimestampedGeoJson): scrubbing through the season recolours each marker by
-    its station's probability on that date, so the user can watch risk evolve.
+    Observation triangles are coloured by the blended model probability within
+    the forecast window (forecast_date − 1 day to forecast_date + 2 days).
+    Six-level colour scale (gray / green / gold / orange / red / dark red)
+    matches the JS thresholds: < 33 %, 33–50 %, 50–65 %, 65–80 %, ≥ 80 %.
 
     Args:
-        df:            Must contain Latitude, Longitude, Placemark Name columns,
-                       and optionally Aspect, date, Elevation (M), Size, Remarks,
-                       target_url, forecast_prob, station_id.
-        output_path:   Destination HTML file.
-        target_url:    Fallback URL when df has no target_url column.
-        forecast_date: Reference date shown in the map legend.
-        prob_by_station: station_id → daily probability Series. Enables the date
-                       slider; rows are matched to a series via the station_id column.
+        df:              Must contain Latitude, Longitude, Placemark Name
+                         columns, and optionally Aspect, date, target_url,
+                         forecast_prob, station_id.
+        output_path:     Destination HTML file.
+        target_url:      Fallback URL when df has no target_url column.
+        forecast_date:   Reference date shown in the map legend.
+        prob_by_station: station_id → daily probability Series.  When supplied,
+                         enables the time slider and date navigator recolouring.
+        sim_stations:    List of station metadata dicts (id, lat, lon, aspect,
+                         forecast_prob, confidence_tier, regional_prob, url).
     """
     if 'target_url' not in df.columns:
         df = df.copy()
         df['target_url'] = target_url
-
-    from folium.plugins import Geocoder
 
     m = folium.Map(
         location=[df['Latitude'].mean(), df['Longitude'].mean()],
@@ -869,8 +849,6 @@ def create_avalanche_map(
     ).add_to(m)
     folium.TileLayer('OpenStreetMap', name='Standard').add_to(m)
 
-    import json as _json
-
     # Serialise prob_by_station early — needed by both the obs script and sim layer.
     prob_series_dict: dict[str, dict[str, float]] = {}
     if prob_by_station:
@@ -880,7 +858,7 @@ def create_avalanche_map(
                 pd.Timestamp(_ts).strftime('%Y-%m-%d'): round(float(_p), 4)
                 for _ts, _p in _clean.items()
             }
-    prob_series_json = _json.dumps(prob_series_dict)
+    prob_series_json = json.dumps(prob_series_dict)
 
     features = [
         {
@@ -907,7 +885,7 @@ def create_avalanche_map(
         for _, row in df.iterrows()
     ]
 
-    m.get_root().html.add_child(folium.Element(_date_nav_html(_json.dumps(features))))
+    m.get_root().html.add_child(folium.Element(_date_nav_html(json.dumps(features))))
 
     # ── Observation markers (triangles, date-filtered) ────────────────────────
     point_to_layer = folium.JsCode("""
@@ -1092,29 +1070,29 @@ def create_avalanche_map(
 
     # ── Time-series player: daily probability at each sim station ────────────
     if prob_by_station and sim_stations:
-        from folium.plugins import TimestampedGeoJson
-
         # Build a coord lookup: station_id → (lon, lat)
         station_coords = {s['id']: (s['lon'], s['lat']) for s in sim_stations}
 
+        # Circles are invisible — they exist only to populate timeDimension so
+        # the time slider works.  _simLayer is the sole visual layer and
+        # recolours itself via setInterval polling timeDimension.getCurrentTime().
+        _invisible = {
+            "fillColor": "transparent", "color": "transparent",
+            "fillOpacity": 0, "weight": 0, "radius": 1,
+        }
         ts_features: list[dict] = []
         for sid, series in prob_by_station.items():
             coords = station_coords.get(sid)
             if coords is None:
                 continue
-            clean = series.dropna()
-            for ts, p in clean.items():
-                fill, stroke = _prob_to_colors(float(p))
+            for ts, p in series.dropna().items():
                 ts_features.append({
                     "type": "Feature",
                     "geometry": {"type": "Point", "coordinates": list(coords)},
                     "properties": {
                         "times":     [pd.Timestamp(ts).strftime('%Y-%m-%d')],
                         "icon":      "circle",
-                        "iconstyle": {
-                            "fillColor": fill, "color": stroke,
-                            "fillOpacity": 0.85, "weight": 1.5, "radius": 8,
-                        },
+                        "iconstyle": _invisible,
                         "popup": (f"<b>{sid.replace('_res','')}</b><br>"
                                   f"{pd.Timestamp(ts).strftime('%b %d, %Y')}<br>"
                                   f"Prob: {float(p)*100:.0f}%"),
@@ -1123,15 +1101,6 @@ def create_avalanche_map(
 
         td_layer_js_name: str | None = None
         if ts_features:
-            # Circles are invisible (weight=0, fillOpacity=0) — they exist only to
-            # populate the time dimension so the time slider works.  _simLayer
-            # (in _sim_layer_html) is the sole visual layer and recolours itself via
-            # a setInterval that polls timeDimension.getCurrentTime().
-            for f in ts_features:
-                f["properties"]["iconstyle"] = {
-                    "fillColor": "transparent", "color": "transparent",
-                    "fillOpacity": 0, "weight": 0, "radius": 1,
-                }
             TimestampedGeoJson(
                 {"type": "FeatureCollection", "features": ts_features},
                 period="P1D", duration="P1D", transition_time=150,
@@ -1148,7 +1117,7 @@ def create_avalanche_map(
         m.get_root().html.add_child(
             folium.Element(_sim_layer_html(
                 m.get_name(), layer_ctrl.get_name(), sim_stations,
-                _json.dumps(prob_series_dict),
+                json.dumps(prob_series_dict),
             ))
         )
 
