@@ -29,6 +29,11 @@ from sklearn.preprocessing import StandardScaler
 
 from classifier import FEATURE_COLS, _make_labels
 
+# Default static terrain predictors on the intercept. Deliberately minimal — the
+# dataset is event-sparse, so extra group-level params overfit (see project
+# thesis). `alpha` is the governing-path runout angle (the consequence threshold).
+TERRAIN_FEATURE_COLS = ["alpha"]
+
 
 @dataclass
 class HierModel:
@@ -37,6 +42,11 @@ class HierModel:
     scaler:       StandardScaler
     feature_cols: list[str]
     station_list: list[str]        # training stations, in coefficient-index order
+    # Optional static terrain predictors on the station intercept (group-level).
+    terrain_cols:   list[str] | None = None
+    terrain_scaler: StandardScaler | None = None
+    # Optional terrain × feature interaction (e.g. terrain moderates the HS slope).
+    interact_feature: str | None = None
 
     # ── posterior coefficient summaries (drawn lazily) ──────────────────────────
     def _posterior_arrays(self):
@@ -50,7 +60,24 @@ class HierModel:
         mu_b  = post['mu_beta'].stack(sample=('chain', 'draw')).values    # (F, N)
         return alpha, beta, mu_a, mu_b
 
-    def predict(self, station_id: str, daily_df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    def _terrain_intercept(self, terrain: dict | None, mu_a: np.ndarray) -> np.ndarray:
+        """
+        Population intercept draws for an unseen station, shifted by its terrain:
+        mu_alpha + gamma . terrain_scaled. Falls back to mu_alpha when the model
+        has no terrain predictors or none is supplied.
+        """
+        if not self.terrain_cols or self.terrain_scaler is None or terrain is None:
+            return mu_a
+        post  = self.idata.posterior  # type: ignore[attr-defined]
+        gamma = post['gamma'].stack(sample=('chain', 'draw')).values      # (Ft, N)
+        x     = np.array([[terrain.get(c, np.nan) for c in self.terrain_cols]], dtype=float)
+        if np.isnan(x).any():
+            return mu_a
+        xs = self.terrain_scaler.transform(x)[0]                          # (Ft,)
+        return mu_a + xs @ gamma                                          # (N,)
+
+    def predict(self, station_id: str, daily_df: pd.DataFrame,
+                terrain: dict | None = None) -> tuple[pd.Series, pd.Series]:
         """
         Predict daily avalanche probability for one station.
 
@@ -58,7 +85,9 @@ class HierModel:
         the posterior standard deviation of the probability — a direct measure of
         model confidence at that station/day.
 
-        Stations absent from training use the population-level (regional) prior.
+        Stations absent from training use the population-level (regional) prior;
+        if a `terrain` dict is supplied, the intercept is shifted by the learned
+        terrain effect, so path geometry transfers to unseen/unproven stations.
         """
         alpha, beta, mu_a, mu_b = self._posterior_arrays()
 
@@ -67,7 +96,7 @@ class HierModel:
             a_s = alpha[s]          # (N,)
             b_s = beta[s]           # (F, N)
         else:
-            a_s = mu_a              # (N,)
+            a_s = self._terrain_intercept(terrain, mu_a)   # (N,)
             b_s = mu_b              # (F, N)
 
         # Impute zone NaNs with training mean (0 after scaling); require core feats
@@ -84,7 +113,20 @@ class HierModel:
 
         # logit_p[t, n] = a_s[n] + sum_f Xs[t,f] * b_s[f,n]   → (T, N)
         logit = a_s[None, :] + Xs.values @ b_s            # (T, N)
-        p     = 1.0 / (1.0 + np.exp(-logit))              # (T, N)
+
+        # terrain × feature interaction: theta . (scaled_feature_t * scaled_terrain_s)
+        if (self.interact_feature and self.terrain_cols and self.terrain_scaler is not None
+                and terrain is not None and self.interact_feature in self.feature_cols):
+            x = np.array([[terrain.get(c, np.nan) for c in self.terrain_cols]], dtype=float)
+            if not np.isnan(x).any():
+                post  = self.idata.posterior  # type: ignore[attr-defined]
+                theta = post['theta'].stack(sample=('chain', 'draw')).values   # (Ft, N)
+                ts    = self.terrain_scaler.transform(x)[0]                     # (Ft,)
+                fcol  = Xs[self.interact_feature].values                        # (T,) scaled
+                Xi    = fcol[:, None] * ts[None, :]                             # (T, Ft)
+                logit = logit + Xi @ theta                                     # (T, N)
+
+        p = 1.0 / (1.0 + np.exp(-logit))                  # (T, N)
 
         mean_p = pd.Series(p.mean(axis=1), index=daily_df.index, name='avalanche_prob')
         std_p  = pd.Series(p.std(axis=1),  index=daily_df.index, name='avalanche_prob_std')
@@ -96,6 +138,9 @@ class HierModel:
 def train_hierarchical(
     station_features: dict[str, pd.DataFrame],
     station_events: dict[str, list[pd.Timestamp]],
+    station_terrain: dict[str, dict] | None = None,
+    terrain_cols: list[str] | None = None,
+    interact_with: str | None = None,
     draws: int = 1000,
     tune: int = 1000,
     target_accept: float = 0.9,
@@ -106,11 +151,17 @@ def train_hierarchical(
 
     Model (non-centered parameterization for stable sampling):
         logit(p_{s,t}) = alpha_s + beta_s . x_{s,t}
-        alpha_s = mu_alpha + sigma_alpha * z^alpha_s
+        alpha_s = (mu_alpha + gamma . terrain_s) + sigma_alpha * z^alpha_s
         beta_s  = mu_beta  + sigma_beta  * z^beta_s
     with weakly-informative hyperpriors.  The intercept prior is centered on the
     empirical log-odds of an event day, so probabilities stay calibrated to the
     low (~1%) base rate rather than being rebalanced.
+
+    When `station_terrain` (station_id → {terrain_col: value}) is supplied, the
+    static path geometry enters as **group-level predictors on the intercept**
+    (gamma): terrain modulates each station's base rate and, being a fixed
+    effect, transfers to stations with little/no event history — the data-sparse
+    fix. `terrain_cols` selects which keys to use (default: all shared keys).
     """
     import pymc as pm
 
@@ -160,7 +211,41 @@ def train_hierarchical(
     base_rate = max(n_pos / n_obs, 1e-4)
     logit_prev = float(np.log(base_rate / (1 - base_rate)))
 
+    # ── Optional group-level terrain design matrix (aligned to station_list) ────
+    T = None
+    t_cols: list[str] | None = None
+    terrain_scaler: StandardScaler | None = None
+    if station_terrain:
+        t_cols = terrain_cols or [
+            c for c in TERRAIN_FEATURE_COLS
+            if any(np.isfinite(station_terrain.get(sid, {}).get(c, np.nan))
+                   for sid in station_list)
+        ]
+        if t_cols:
+            T_raw = np.array(
+                [[station_terrain.get(sid, {}).get(c, np.nan) for c in t_cols]
+                 for sid in station_list], dtype=float)
+            # Stations missing a terrain value get the column mean → no intercept shift.
+            col_mean = np.nanmean(T_raw, axis=0)
+            nan_r, nan_c = np.where(~np.isfinite(T_raw))
+            T_raw[nan_r, nan_c] = np.take(col_mean, nan_c)
+            terrain_scaler = StandardScaler()
+            T = terrain_scaler.fit_transform(T_raw)
+            print(f"    terrain predictors on intercept: {t_cols}")
+        else:
+            t_cols = None
+
+    # Resolve the terrain × feature interaction (only if terrain is present).
+    interact_feat: str | None = None
+    feat_idx: int | None = None
+    if T is not None and interact_with and interact_with in feature_cols:
+        interact_feat = interact_with
+        feat_idx = feature_cols.index(interact_with)
+        print(f"    terrain × {interact_feat} interaction enabled")
+
     coords = {"station": station_list, "feature": feature_cols}
+    if t_cols:
+        coords["terrain"] = t_cols
     with pm.Model(coords=coords) as model:
         station_idx = pm.Data("station_idx", sidx)
         X_data      = pm.Data("X_data", Xs)
@@ -172,13 +257,31 @@ def train_hierarchical(
         sigma_alpha = pm.HalfNormal("sigma_alpha", sigma=1.0)
         sigma_beta  = pm.HalfNormal("sigma_beta", sigma=1.0, dims="feature")
 
+        # Static terrain shifts the station intercept mean (group-level predictor)
+        if T is not None:
+            T_data     = pm.Data("T_data", T)
+            gamma      = pm.Normal("gamma", 0.0, 1.0, dims="terrain")
+            alpha_mean = mu_alpha + pm.math.dot(T_data, gamma)
+        else:
+            alpha_mean = mu_alpha
+
         # Non-centered station offsets
         z_alpha = pm.Normal("z_alpha", 0.0, 1.0, dims="station")
         z_beta  = pm.Normal("z_beta", 0.0, 1.0, dims=("station", "feature"))
-        alpha   = pm.Deterministic("alpha", mu_alpha + sigma_alpha * z_alpha, dims="station")
+        alpha   = pm.Deterministic("alpha", alpha_mean + sigma_alpha * z_alpha, dims="station")
         beta    = pm.Deterministic("beta", mu_beta + sigma_beta * z_beta, dims=("station", "feature"))
 
         logit_p = alpha[station_idx] + (X_data * beta[station_idx]).sum(axis=-1)
+
+        # terrain × feature interaction: terrain moderates the slope of one feature
+        # (e.g. HS) — the "how much snow is needed depends on the path" mechanism.
+        if T is not None and interact_feat is not None:
+            # (obs, terrain) = scaled feature at each obs × its station's terrain row
+            Xi_np  = Xs[:, feat_idx][:, None] * T[sidx, :]
+            Xi     = pm.Data("Xi_data", Xi_np)
+            theta  = pm.Normal("theta", 0.0, 1.0, dims="terrain")
+            logit_p = logit_p + (Xi * theta).sum(axis=-1)
+
         pm.Bernoulli("y_obs", logit_p=logit_p, observed=y_all)
 
         idata = pm.sample(
@@ -191,7 +294,9 @@ def train_hierarchical(
     print(f"    sampled: {draws}×2 draws  divergences={n_div}")
 
     return HierModel(idata=idata, scaler=scaler,
-                     feature_cols=feature_cols, station_list=station_list)
+                     feature_cols=feature_cols, station_list=station_list,
+                     terrain_cols=t_cols, terrain_scaler=terrain_scaler,
+                     interact_feature=interact_feat)
 
 
 # ── standalone smoke test ───────────────────────────────────────────────────────
