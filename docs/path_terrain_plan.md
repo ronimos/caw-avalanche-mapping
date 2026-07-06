@@ -116,6 +116,23 @@ before any of this reaches the model. Auto-selection at 30 m will have failures.
 - `scipy` — profile smoothing / neighbourhood ops (already transitively present
   via scikit-learn; pin explicitly).
 
+## Result so far (leave-one-station-out, 13 training stations)
+
+Terrain as `alpha` on the intercept does **not** improve LOO cross-station
+prediction: baseline AP 0.045 / AUC 0.701 vs +terrain AP 0.046 / AUC 0.696
+(no-skill AP 0.014). The integration is correct (synthetic test recovers a
+planted `gamma` and shows unseen-station transfer), but the signal isn't there
+at 13 stations / ~20 events.
+
+Two reasons it may be the wrong test, not just a dead end:
+- **Intercept-only shift** says "steeper-runout paths are more avalanche-prone
+  regardless of weather" — a *weaker* claim than the original hypothesis, which
+  is that terrain sets *how much HS is needed* (a **terrain × HS interaction**,
+  not a base-rate shift). The interaction is the real experiment; it needs more
+  data before it can be fit without overfitting.
+- AP/AUC are ranking metrics; a per-station intercept shift mostly affects
+  calibration/level, so it is a weak lever on these scores.
+
 ## Status
 
 - [x] `terrain.py`: DEM fetch + cache (Copernicus GLO-30 via `/vsicurl/`, verified live)
