@@ -45,6 +45,8 @@ class HierModel:
     # Optional static terrain predictors on the station intercept (group-level).
     terrain_cols:   list[str] | None = None
     terrain_scaler: StandardScaler | None = None
+    # Optional terrain × feature interaction (e.g. terrain moderates the HS slope).
+    interact_feature: str | None = None
 
     # ── posterior coefficient summaries (drawn lazily) ──────────────────────────
     def _posterior_arrays(self):
@@ -111,7 +113,20 @@ class HierModel:
 
         # logit_p[t, n] = a_s[n] + sum_f Xs[t,f] * b_s[f,n]   → (T, N)
         logit = a_s[None, :] + Xs.values @ b_s            # (T, N)
-        p     = 1.0 / (1.0 + np.exp(-logit))              # (T, N)
+
+        # terrain × feature interaction: theta . (scaled_feature_t * scaled_terrain_s)
+        if (self.interact_feature and self.terrain_cols and self.terrain_scaler is not None
+                and terrain is not None and self.interact_feature in self.feature_cols):
+            x = np.array([[terrain.get(c, np.nan) for c in self.terrain_cols]], dtype=float)
+            if not np.isnan(x).any():
+                post  = self.idata.posterior  # type: ignore[attr-defined]
+                theta = post['theta'].stack(sample=('chain', 'draw')).values   # (Ft, N)
+                ts    = self.terrain_scaler.transform(x)[0]                     # (Ft,)
+                fcol  = Xs[self.interact_feature].values                        # (T,) scaled
+                Xi    = fcol[:, None] * ts[None, :]                             # (T, Ft)
+                logit = logit + Xi @ theta                                     # (T, N)
+
+        p = 1.0 / (1.0 + np.exp(-logit))                  # (T, N)
 
         mean_p = pd.Series(p.mean(axis=1), index=daily_df.index, name='avalanche_prob')
         std_p  = pd.Series(p.std(axis=1),  index=daily_df.index, name='avalanche_prob_std')
@@ -125,6 +140,7 @@ def train_hierarchical(
     station_events: dict[str, list[pd.Timestamp]],
     station_terrain: dict[str, dict] | None = None,
     terrain_cols: list[str] | None = None,
+    interact_with: str | None = None,
     draws: int = 1000,
     tune: int = 1000,
     target_accept: float = 0.9,
@@ -219,6 +235,14 @@ def train_hierarchical(
         else:
             t_cols = None
 
+    # Resolve the terrain × feature interaction (only if terrain is present).
+    interact_feat: str | None = None
+    feat_idx: int | None = None
+    if T is not None and interact_with and interact_with in feature_cols:
+        interact_feat = interact_with
+        feat_idx = feature_cols.index(interact_with)
+        print(f"    terrain × {interact_feat} interaction enabled")
+
     coords = {"station": station_list, "feature": feature_cols}
     if t_cols:
         coords["terrain"] = t_cols
@@ -248,6 +272,16 @@ def train_hierarchical(
         beta    = pm.Deterministic("beta", mu_beta + sigma_beta * z_beta, dims=("station", "feature"))
 
         logit_p = alpha[station_idx] + (X_data * beta[station_idx]).sum(axis=-1)
+
+        # terrain × feature interaction: terrain moderates the slope of one feature
+        # (e.g. HS) — the "how much snow is needed depends on the path" mechanism.
+        if T is not None and interact_feat is not None:
+            # (obs, terrain) = scaled feature at each obs × its station's terrain row
+            Xi_np  = Xs[:, feat_idx][:, None] * T[sidx, :]
+            Xi     = pm.Data("Xi_data", Xi_np)
+            theta  = pm.Normal("theta", 0.0, 1.0, dims="terrain")
+            logit_p = logit_p + (Xi * theta).sum(axis=-1)
+
         pm.Bernoulli("y_obs", logit_p=logit_p, observed=y_all)
 
         idata = pm.sample(
@@ -261,7 +295,8 @@ def train_hierarchical(
 
     return HierModel(idata=idata, scaler=scaler,
                      feature_cols=feature_cols, station_list=station_list,
-                     terrain_cols=t_cols, terrain_scaler=terrain_scaler)
+                     terrain_cols=t_cols, terrain_scaler=terrain_scaler,
+                     interact_feature=interact_feat)
 
 
 # ── standalone smoke test ───────────────────────────────────────────────────────

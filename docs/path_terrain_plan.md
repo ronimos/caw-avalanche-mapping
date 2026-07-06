@@ -116,22 +116,24 @@ before any of this reaches the model. Auto-selection at 30 m will have failures.
 - `scipy` — profile smoothing / neighbourhood ops (already transitively present
   via scikit-learn; pin explicitly).
 
-## Result so far (leave-one-station-out, 13 training stations)
+## Result (leave-one-station-out, 13 training stations, ~20 events)
 
-Terrain as `alpha` on the intercept does **not** improve LOO cross-station
-prediction: baseline AP 0.045 / AUC 0.701 vs +terrain AP 0.046 / AUC 0.696
-(no-skill AP 0.014). The integration is correct (synthetic test recovers a
-planted `gamma` and shows unseen-station transfer), but the signal isn't there
-at 13 stations / ~20 events.
+Neither terrain framing improves cross-station prediction:
 
-Two reasons it may be the wrong test, not just a dead end:
-- **Intercept-only shift** says "steeper-runout paths are more avalanche-prone
-  regardless of weather" — a *weaker* claim than the original hypothesis, which
-  is that terrain sets *how much HS is needed* (a **terrain × HS interaction**,
-  not a base-rate shift). The interaction is the real experiment; it needs more
-  data before it can be fit without overfitting.
-- AP/AUC are ranking metrics; a per-station intercept shift mostly affects
-  calibration/level, so it is a weak lever on these scores.
+| model | AP | AUC |
+|-------|----|-----|
+| no-skill (base rate) | 0.014 | — |
+| baseline | 0.045 | 0.701 |
+| + terrain on intercept (`gamma`) | 0.046 | 0.696 |
+| + terrain × HS interaction (`theta`) | 0.042 | 0.674 |
+
+The intercept shift is flat; the interaction is **worse** — the classic
+overfitting signature of adding a parameter to an event-sparse problem. The
+machinery is verified: synthetic tests recover a planted `gamma` (0.65–1.36) and
+`theta` (0.42–1.10) and show unseen-station transfer. The `HS`-needed-per-path
+mechanism is physically real, but ~20 events cannot estimate it without
+overfitting. This reinforces the project's data-sparsity thesis: path terrain is
+a sound covariate that becomes usable only with more observations.
 
 ## Status
 
