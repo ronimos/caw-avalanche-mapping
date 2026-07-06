@@ -4,6 +4,7 @@ visualization.py — Snowpack stability analysis and interactive output.
 Provides:
   - plot_interactive_stability  Multi-panel Plotly HTML stability chart.
   - create_avalanche_map        Folium map of avalanche observations.
+  - create_trace_validation_map Folium overlay of debris→start-zone terrain traces.
 """
 
 import math
@@ -660,3 +661,222 @@ def create_avalanche_map(
 
     folium.LayerControl().add_to(m)
     m.save(str(output_path))
+
+
+# ── terrain-trace validation map ──────────────────────────────────────────────
+
+def _trace_quality(feats: dict, trace_error: str) -> tuple[str, str, str]:
+    """
+    Classify a traced path for visual QA.
+
+    Returns (level, colour, reason) where level is 'good' | 'check' | 'fail'.
+    The heuristics flag traces that likely did not reach a real start zone at
+    30 m resolution — the reviewer confirms or rejects them by eye.
+    """
+    if trace_error or feats.get('vertical_drop') is None \
+            or (isinstance(feats.get('vertical_drop'), float) and math.isnan(feats['vertical_drop'])):
+        return 'fail', '#d62728', trace_error or 'no steep start zone found'
+
+    # Governing start zone is steep by construction, so QA flags degenerate paths:
+    # too short, or too little vertical drop.
+    L = feats.get('travel_distance', float('nan'))
+    H = feats.get('vertical_drop', float('nan'))
+
+    reasons = []
+    if not (L >= 100):
+        reasons.append(f'short path L={L:.0f} m')
+    if not (H >= 50):
+        reasons.append(f'small drop H={H:.0f} m')
+
+    if reasons:
+        return 'check', '#ff7f0e', '; '.join(reasons)
+    return 'good', '#2ca02c', 'plausible'
+
+
+def create_trace_validation_map(
+    observations: pd.DataFrame,
+    output_path: Path,
+    radius_km: float = 4.0,
+) -> pd.DataFrame:
+    """
+    Draw each governing avalanche-path terrain trace on a Folium map for visual QA.
+
+    For every unique observation coordinate, traces the reverse-watershed
+    governing path (governing start zone → valley floor) and draws:
+      - a debris seed marker (red-filled when the trace failed, to stand out),
+      - the traced polyline (governing start zone → valley floor),
+      - a filled start-zone marker coloured by trace quality (green / orange /
+        red), with H, L, alpha, start-zone slope/aspect/elevation and catchment,
+      - a hollow valley-floor marker at the bottom of the path,
+      - a faint dashed step-up reference line (the single-thread up-trace), and
+      - a toggleable catchment-polygon layer.
+
+    Satellite imagery is the default base layer so traces can be checked against
+    real gullies. Returns the per-observation feature/quality table it built.
+
+    Args:
+        observations: must contain 'Latitude' and 'Longitude'; 'Placemark Name',
+                      'date', 'Size', 'Remarks' are shown in tooltips if present.
+        output_path:  destination HTML file.
+        radius_km:    DEM window half-size passed to terrain.fetch_dem.
+    """
+    import terrain  # local import: pulls in rasterio only when this map is built
+
+    coords = observations[['Latitude', 'Longitude']].dropna().drop_duplicates()
+
+    # Region-batched fetch: download one regional DEM per cluster of *uncached*
+    # points, so each is sliced locally instead of a per-point API call.
+    uncached = coords[~coords.apply(
+        lambda r: terrain.dem_is_cached(r['Longitude'], r['Latitude']), axis=1)]
+    if len(uncached):
+        try:
+            regions = terrain.prepare_regions(uncached, radius_km=radius_km)
+            print(f"prepared {len(regions)} regional DEM(s) for {len(uncached)} uncached points")
+        except Exception as exc:  # noqa: BLE001 — fall back to per-point / cached
+            print(f"region prep failed ({exc}); using cached tiles only")
+
+    m = folium.Map(
+        location=[coords['Latitude'].mean(), coords['Longitude'].mean()],
+        zoom_start=11,
+    )
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri World Imagery', name='Satellite',
+    ).add_to(m)
+    folium.TileLayer(
+        tiles='https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+        attr='OpenTopoMap', name='Topographic',
+    ).add_to(m)
+    folium.TileLayer('OpenStreetMap', name='Standard').add_to(m)
+
+    groups = {
+        'good':  folium.FeatureGroup(name='Traces — plausible'),
+        'check': folium.FeatureGroup(name='Traces — needs review'),
+        'fail':  folium.FeatureGroup(name='Traces — failed'),
+    }
+    catchment_grp = folium.FeatureGroup(name='Catchments (reverse-watershed)', show=False)
+
+    # metadata keyed by rounded coordinate, for tooltips
+    meta = {
+        (round(r['Latitude'], 5), round(r['Longitude'], 5)): r
+        for _, r in observations.iterrows()
+    }
+
+    records = []
+    for lat, lon in coords.itertuples(index=False):
+        trace_error = ''
+        feats: dict = {}
+        polyline: list[tuple[float, float]] = []
+        geom = None
+        try:
+            dem = terrain.fetch_dem(lon, lat, radius_km=radius_km)
+            geom = terrain.trace_path(dem, lon, lat)
+            feats = terrain.path_features(geom)
+            polyline = [(ll[1], ll[0]) for ll in geom.lonlat]  # (lat, lon) for folium
+        except Exception as exc:  # noqa: BLE001 — QA map should never abort on one bad point
+            trace_error = f'{type(exc).__name__}: {exc}'
+
+        level, colour, reason = _trace_quality(feats, trace_error)
+        grp = groups[level]
+
+        info = meta.get((round(lat, 5), round(lon, 5)))
+        name = info['Placemark Name'] if info is not None and 'Placemark Name' in info else ''
+
+        # reverse-watershed catchment polygon (toggleable QA layer)
+        if geom is not None and geom.catchment_rings:
+            for ring in geom.catchment_rings:
+                folium.Polygon(
+                    [(y, x) for x, y in ring], color='#3186cc', weight=1,
+                    fill=True, fill_color='#3186cc', fill_opacity=0.10,
+                    tooltip=folium.Tooltip(
+                        f"<b>{name or 'catchment'}</b><br>"
+                        f"area = {geom.catchment_area_km2:.2f} km²<br>"
+                        f"{geom.num_start_zones} start zone(s)"),
+                ).add_to(catchment_grp)
+
+        # step-up reference line (single-thread up-trace) — faint, for comparison
+        if geom is not None and len(geom.uptrace_lonlat) > 1:
+            folium.PolyLine(
+                [(y, x) for x, y in geom.uptrace_lonlat],
+                color='#666666', weight=1.5, opacity=0.55, dash_array='4,5',
+                tooltip=folium.Tooltip('step-up trace (reference)'),
+            ).add_to(grp)
+
+        if polyline:
+            folium.PolyLine(
+                polyline, color=colour, weight=3, opacity=0.85,
+            ).add_to(grp)
+            # start zone = top of the path (start→valley); valley floor = bottom.
+            start_lat, start_lon = polyline[0]
+            folium.CircleMarker(
+                [start_lat, start_lon], radius=6, color=colour, weight=2,
+                fill=True, fill_color=colour, fill_opacity=0.9,
+                tooltip=folium.Tooltip(
+                    f"<b>{name or 'path'}</b> — governing start zone<br>"
+                    f"H = {feats.get('vertical_drop', float('nan')):.0f} m &nbsp; "
+                    f"L = {feats.get('travel_distance', float('nan')):.0f} m<br>"
+                    f"&alpha; = {feats.get('alpha', float('nan')):.1f}° &nbsp; "
+                    f"start slope = {feats.get('startzone_slope', float('nan')):.0f}°<br>"
+                    f"start elev = {feats.get('startzone_elev', float('nan')):.0f} m &nbsp; "
+                    f"aspect = {feats.get('startzone_aspect', float('nan')):.0f}°<br>"
+                    f"catchment {feats.get('catchment_area_km2', float('nan')):.2f} km² · "
+                    f"{int(feats.get('num_start_zones', 0))} start zone(s)<br>"
+                    f"<i>{reason}</i>"
+                ),
+            ).add_to(grp)
+            # valley-floor marker (bottom of the traced path)
+            vf_lat, vf_lon = polyline[-1]
+            folium.CircleMarker(
+                [vf_lat, vf_lon], radius=4, color=colour, weight=1.5,
+                fill=True, fill_color='#ffffff', fill_opacity=0.9,
+                tooltip=folium.Tooltip(f"<b>{name or 'path'}</b> — valley floor"),
+            ).add_to(grp)
+
+        # debris seed marker (always drawn — red-filled when the trace failed,
+        # so failed locations are easy to spot).
+        seed_fill = colour if level == 'fail' else '#ffffff'
+        seed_edge = colour if level == 'fail' else '#222222'
+        folium.CircleMarker(
+            [lat, lon], radius=6 if level == 'fail' else 4,
+            color=seed_edge, weight=1.5,
+            fill=True, fill_color=seed_fill, fill_opacity=0.95,
+            tooltip=folium.Tooltip(
+                f"<b>{name or 'debris'}</b><br>"
+                f"{info['date'] if info is not None and 'date' in info else ''}<br>"
+                f"<i>{trace_error or reason}</i>"
+            ),
+        ).add_to(grp)
+
+        rec = {'Latitude': lat, 'Longitude': lon, 'quality': level,
+               'reason': reason, 'trace_error': trace_error}
+        rec.update(feats)
+        records.append(rec)
+
+    for grp in groups.values():
+        grp.add_to(m)
+    catchment_grp.add_to(m)
+
+    legend_html = """
+    <div style="
+        position: fixed; bottom: 40px; left: 12px; z-index: 1000;
+        background: rgba(255,255,255,0.94); padding: 10px 14px;
+        border-radius: 8px; border: 1px solid #ccc;
+        font-family: sans-serif; font-size: 12px; line-height: 1.7;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+    ">
+        <b>Terrain trace QA</b><br>
+        <span style="color:#2ca02c">&#9679;</span> Plausible<br>
+        <span style="color:#ff7f0e">&#9679;</span> Needs review<br>
+        <span style="color:#d62728">&#9679;</span> Failed<br>
+        <hr style="margin:6px 0">
+        <span style="color:#222">&#9679;</span> Debris seed &nbsp;
+        &#9679; Start zone (governing) &nbsp;
+        &#9711; Valley floor<br>
+        <span style="color:#666">- -</span> Step-up trace (reference) &nbsp;
+        <span style="color:#3186cc">&#9632;</span> Catchment (toggle layer)
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+    folium.LayerControl(collapsed=False).add_to(m)
+    m.save(str(output_path))
+    return pd.DataFrame(records)

@@ -43,6 +43,8 @@ Managed with `uv`. Python 3.12 required.
 - `pandas`, `plotly`, `folium`, `matplotlib`
 - `scikit-learn`, `joblib` — frequentist classifiers (per-station, regional, blended)
 - `pymc`, `arviz` — hierarchical Bayesian model (`src/hierarchical.py`); skip with `main.py --no-hierarchical`
+- `rasterio`, `scipy` — DEM read + path tracing (`src/terrain.py`)
+- `requests`, `python-dotenv` — OpenTopography DEM download; needs `OPENTOPO_API_KEY` in `.env` (see `.env.example`)
 
 ## File Outputs (git-ignored via output/)
 

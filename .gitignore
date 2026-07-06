@@ -16,6 +16,9 @@ wheels/
 output/
 plots/
 
+# Cached DEM tiles and path atlas (regenerate with terrain.build_path_atlas)
+data/dem/
+
 # Trained model files (regenerate with: python src/main.py --retrain)
 models/
 
