@@ -135,6 +135,22 @@ mechanism is physically real, but ~20 events cannot estimate it without
 overfitting. This reinforces the project's data-sparsity thesis: path terrain is
 a sound covariate that becomes usable only with more observations.
 
+### HS lapse-correction — tried, no-op (not wired in)
+
+Correcting station HS to the start-zone elevation (`HS' = HS + k·Δz`, with
+Δz = start-zone − station altitude) has no effect here, for a concrete reason:
+
+- The elevation offset is **real and large** — Δz mean −161 m, range
+  [−1370, +1601] m (std 924 m) — so the grid≠path-elevation premise holds.
+- But modeled HS has **no elevation gradient** across the 13 stations
+  (3608–4478 m): per-station HS vs altitude correlates 0.01 (mean) / −0.11
+  (max), i.e. `k ≈ 0` cm/100 m (thin, ~0.5–1 m HS everywhere in this arid
+  region).
+
+So the correction collapses to `HS' ≈ HS`; LOO is unchanged (AP 0.045→0.045,
+AUC 0.701→0.699). Not wired into `features.py` — a `k≈0` correction is inert.
+Revisit if a station network with a real HS-elevation gradient is used.
+
 ## Status
 
 - [x] `terrain.py`: DEM fetch + cache (Copernicus GLO-30 via `/vsicurl/`, verified live)
