@@ -191,6 +191,26 @@ def _load_observations(obs_dir: Path) -> pd.DataFrame:
     return combined
 
 
+def _station_event_dates(
+    df: pd.DataFrame,
+    mask: pd.Series | None = None,
+) -> dict[str, list[pd.Timestamp]]:
+    """
+    Build station_id → unique event dates (insertion order) from observation
+    rows.  Requires the 'station_id' and 'event_date' columns added in main();
+    rows without a matched station or a parseable date are skipped.
+    """
+    sub = df if mask is None else df[mask]
+    sub = sub[sub['station_id'].notna() & sub['event_date'].notna()]
+
+    out: dict[str, list[pd.Timestamp]] = {}
+    for sid, date in zip(sub['station_id'], sub['event_date']):
+        dates = out.setdefault(sid, [])
+        if date not in dates:
+            dates.append(date)
+    return out
+
+
 def _collect_all_season_features(
     station_id: str,
     sims_root: Path,
@@ -263,70 +283,50 @@ def main() -> None:
           f"({n_train_obs} from {TRAIN_SEASON}, {n_test_obs} from {SEASON})")
 
     # --- Match every observation to the nearest current-season .pro station ---
+    # station_id and event_date become columns so every later stage can use
+    # ordinary pandas filtering instead of positional row/list alignment.
     matched_pro_files: list[Path | None] = []
-    target_urls:       list[str]         = []
-
     for _, row in df_all.iterrows():
-        pro_file = find_nearest_pro(
+        matched_pro_files.append(find_nearest_pro(
             row['Latitude'], row['Longitude'], sim_dir,
             aspect=str(row.get('Aspect', '')),
             stations_csv=stations_csv,
-        )
-        matched_pro_files.append(pro_file)
-        target_urls.append(
-            f"assets/{SEASON}/stability_{pro_file.stem}.html" if pro_file else ""
-        )
+        ))
 
-    df_all['target_url'] = target_urls
-    matched = sum(1 for p in matched_pro_files if p is not None)
+    df_all['station_id'] = [pf.stem if pf is not None else None
+                            for pf in matched_pro_files]
+    df_all['event_date'] = pd.to_datetime(df_all['Date'], errors='coerce',
+                                          format='mixed')
+    df_all['target_url'] = df_all['station_id'].map(
+        lambda sid: f"assets/{SEASON}/stability_{sid}.html" if sid else ""
+    )
+    matched = int(df_all['station_id'].notna().sum())
     print(f"Matched {matched}/{len(df_all)} observations to {SEASON} stations")
 
     # --- Assign train / test split ---
     # Test: any SEASON observation whose station_id was active in TRAIN_SEASON
     #       (aspect relaxed — same physical location is enough for cross-season
     #       validation even if the reported aspect differs slightly).
-    train_station_ids: set[str] = set()
-    for idx, (_, row) in enumerate(df_all.iterrows()):
-        pf = matched_pro_files[idx]
-        if pf is not None and row['source_season'] == TRAIN_SEASON:
-            train_station_ids.add(pf.stem)
+    train_station_ids = set(
+        df_all.loc[(df_all['source_season'] == TRAIN_SEASON)
+                   & df_all['station_id'].notna(), 'station_id']
+    )
+    is_test = (
+        (df_all['source_season'] == SEASON)
+        & df_all['station_id'].isin(train_station_ids)
+    )
+    df_all['split'] = np.where(is_test, 'test', 'train')
 
-    splits: list[str] = []
-    for idx, (_, row) in enumerate(df_all.iterrows()):
-        pf = matched_pro_files[idx]
-        if pf is not None and row['source_season'] == SEASON:
-            splits.append('test' if pf.stem in train_station_ids else 'train')
-        else:
-            splits.append('train')
-    df_all['split'] = splits
-
-    n_test_flagged = splits.count('test')
-    print(f"Test set: {n_test_flagged} observation(s) "
+    print(f"Test set: {int(is_test.sum())} observation(s) "
           f"(station matched to a {TRAIN_SEASON} event, any aspect)")
 
     # --- Build per-station train / test event date lists ---
     # Training labels come ONLY from TRAIN_SEASON observations so that
     # 2025-26 dates never contaminate the 2024-25 feature date range.
-    station_train_dates: dict[str, list[pd.Timestamp]] = {}
-    station_test_dates:  dict[str, list[pd.Timestamp]] = {}
-
-    for idx, (_, row) in enumerate(df_all.iterrows()):
-        pf = matched_pro_files[idx]
-        if pf is None:
-            continue
-        raw_date = pd.to_datetime(row.get('Date', ''), errors='coerce')
-        if pd.isna(raw_date):
-            continue
-        station_id = pf.stem
-        if row['split'] == 'test':
-            bucket = station_test_dates
-        elif row['source_season'] == TRAIN_SEASON:
-            bucket = station_train_dates
-        else:
-            continue  # 2025-26 non-test obs: not used as training labels
-        bucket.setdefault(station_id, [])
-        if raw_date not in bucket[station_id]:
-            bucket[station_id].append(raw_date)
+    station_train_dates = _station_event_dates(
+        df_all, (df_all['split'] != 'test')
+        & (df_all['source_season'] == TRAIN_SEASON))
+    station_test_dates = _station_event_dates(df_all, df_all['split'] == 'test')
 
     # --- Per-station: train / load classifier, predict, plot ---
     unique_pro_files = {p for p in matched_pro_files if p is not None}
@@ -366,22 +366,25 @@ def main() -> None:
                 daily = build_daily_features(pro_file, smet_file)
                 daily_dict[pro_file] = daily
 
+                # Training features: TRAIN_SEASON only (never leak test season).
+                # Collected unconditionally — the regional/blended/hierarchical
+                # stage needs them even when the per-station model loads from
+                # cache (previously they were only built on the retrain path,
+                # which silently skipped that whole stage on cached runs).
+                train_pro  = sims_root / TRAIN_SEASON / f"{station_id}.pro"
+                train_smet = sims_root / TRAIN_SEASON / f"{station_id}.smet"
+                train_daily: pd.DataFrame | None = None
+                if train_pro.exists() and train_smet.exists():
+                    print(f"    collecting {TRAIN_SEASON} features...")
+                    train_daily = build_daily_features(train_pro, train_smet)
+                    if train_daily is not None and not train_daily.empty:
+                        train_features_dict[station_id] = train_daily
+
                 if not args.retrain and model_path.exists():
                     fitted = joblib.load(model_path)
                     print(f"    → loaded model ({model_path.name})")
                 else:
-                    # Training features: TRAIN_SEASON only (never leak test season)
-                    train_pro  = sims_root / TRAIN_SEASON / f"{station_id}.pro"
-                    train_smet = sims_root / TRAIN_SEASON / f"{station_id}.smet"
-
-                    if train_pro.exists() and train_smet.exists():
-                        print(f"    collecting {TRAIN_SEASON} features...")
-                        train_daily: pd.DataFrame | None = build_daily_features(
-                            train_pro, train_smet
-                        )
-                        if train_daily is not None and not train_daily.empty:
-                            train_features_dict[station_id] = train_daily
-                    else:
+                    if train_daily is None or train_daily.empty:
                         # Fallback: any season except the test season
                         print(f"    collecting multi-season features (excl. {SEASON})...")
                         train_daily = _collect_all_season_features(
@@ -442,13 +445,10 @@ def main() -> None:
                 print(f"  {station_id}: insufficient test data — skipped")
                 continue
 
-            test_aspects = sorted({
-                str(row.get('Aspect', '')).strip()
-                for idx, (_, row) in enumerate(df_all.iterrows())
-                if (pf := matched_pro_files[idx]) is not None
-                and pf.stem == station_id
-                and row['split'] == 'test'
-            })
+            test_rows    = df_all[(df_all['station_id'] == station_id)
+                                  & (df_all['split'] == 'test')]
+            test_aspects = sorted({str(a).strip()
+                                   for a in test_rows.get('Aspect', pd.Series())})
 
             eval_rows.append({
                 'station_id':     station_id,
@@ -494,17 +494,8 @@ def main() -> None:
             reg_model, reg_scaler = regional_fitted
 
             # All 2025-26 event dates per station (used by regional + blended)
-            station_2526_dates: dict[str, list[pd.Timestamp]] = {}
-            for idx, (_, row) in enumerate(df_all.iterrows()):
-                pf = matched_pro_files[idx]
-                if pf is None or row['source_season'] != SEASON:
-                    continue
-                raw_date = pd.to_datetime(row.get('Date', ''), errors='coerce')
-                if pd.isna(raw_date):
-                    continue
-                station_2526_dates.setdefault(pf.stem, [])
-                if raw_date not in station_2526_dates[pf.stem]:
-                    station_2526_dates[pf.stem].append(raw_date)
+            station_2526_dates = _station_event_dates(
+                df_all, df_all['source_season'] == SEASON)
 
             test_features = {pf.stem: df for pf, df in daily_dict.items()}
 
@@ -589,14 +580,26 @@ def main() -> None:
             # learned from its data. Posterior spread gives per-station uncertainty.
             hier_prob_dict: dict[str, pd.Series] = {}
             if not args.no_hierarchical:
-                try:
-                    from hierarchical import train_hierarchical
-                    print(f"\nTraining hierarchical Bayesian model "
-                          f"({len(train_features_dict)} stations)...")
-                    hmodel = train_hierarchical(train_features_dict, station_train_dates)
-                except ImportError:
-                    hmodel = None
-                    print("\n  PyMC not available — hierarchical model skipped.")
+                # Cached like the per-station/regional models: MCMC only runs on
+                # --retrain (or a cold cache), but predictions/evaluation refresh
+                # on every run.
+                hier_path = models_dir / "hierarchical.joblib"
+                hmodel = None
+                if not args.retrain and hier_path.exists():
+                    hmodel = joblib.load(hier_path)
+                    print(f"\n  → loaded hierarchical model ({hier_path.name})")
+                else:
+                    try:
+                        from hierarchical import train_hierarchical
+                        print(f"\nTraining hierarchical Bayesian model "
+                              f"({len(train_features_dict)} stations)...")
+                        hmodel = train_hierarchical(train_features_dict,
+                                                    station_train_dates)
+                        if hmodel is not None:
+                            joblib.dump(hmodel, hier_path)
+                            print(f"  → saved {hier_path.name}")
+                    except ImportError:
+                        print("\n  PyMC not available — hierarchical model skipped.")
 
                 if hmodel is not None:
                     hier_std_rows: list[dict] = []
@@ -705,15 +708,11 @@ def main() -> None:
 
     # Build per-station event list (all seasons, sorted chronologically, deduplicated)
     station_all_events: dict[str, list[tuple[pd.Timestamp, str]]] = {}
-    for idx, (_, row) in enumerate(df_all.iterrows()):
-        pf = matched_pro_files[idx]
-        if pf is None:
-            continue
-        raw_date = pd.to_datetime(row.get('Date', ''), errors='coerce')
-        if pd.isna(raw_date):
-            continue
-        evs = station_all_events.setdefault(pf.stem, [])
-        entry = (raw_date.normalize(), row['source_season'])
+    ev_rows = df_all[df_all['station_id'].notna() & df_all['event_date'].notna()]
+    for sid, date, season in zip(ev_rows['station_id'], ev_rows['event_date'],
+                                 ev_rows['source_season']):
+        evs = station_all_events.setdefault(sid, [])
+        entry = (date.normalize(), season)
         if entry not in evs:
             evs.append(entry)
 
@@ -939,20 +938,10 @@ def main() -> None:
     # Training: combined multi-season features + all event dates (both seasons).
     # Prediction: 2025-26 features only — the map always shows the current season.
 
-    op_event_dates: dict[str, list] = {}
-    for _idx, (_, _row) in enumerate(df_all.iterrows()):
-        _pf = matched_pro_files[_idx]
-        if _pf is None:
-            continue
-        _rd = pd.to_datetime(_row.get('Date', ''), errors='coerce')
-        if pd.isna(_rd):
-            continue
-        op_event_dates.setdefault(_pf.stem, [])
-        if _rd not in op_event_dates[_pf.stem]:
-            op_event_dates[_pf.stem].append(_rd)
+    op_event_dates: dict[str, list] = _station_event_dates(df_all)
 
     n_op_events = sum(len(v) for v in op_event_dates.values())
-    n_op_seasons = len({r['source_season'] for _, r in df_all.iterrows()})
+    n_op_seasons = int(df_all['source_season'].nunique())
     print(f"\nFitting operational blended model on full dataset "
           f"({n_op_events} events across {len(op_event_dates)} stations, "
           f"{n_op_seasons} season(s))...")
@@ -1042,20 +1031,14 @@ def main() -> None:
             )
             print(f"  → {item['out_path']}")
 
-    forecast_probs: list[float] = []
-    for pf in matched_pro_files:
-        _sid = pf.stem if pf is not None else None
-        if _sid is None or _sid not in prob_by_station:
-            forecast_probs.append(float('nan'))
-        else:
-            s      = prob_by_station[_sid]
-            window = s[(s.index >= win_start) & (s.index <= win_end)]
-            forecast_probs.append(
-                float(window.max()) if not window.dropna().empty else float('nan')
-            )
-    df_all['forecast_prob'] = forecast_probs
-    df_all['station_id'] = [pf.stem if pf is not None else None
-                            for pf in matched_pro_files]
+    def _window_max(sid: str | None) -> float:
+        if sid is None or sid not in prob_by_station:
+            return float('nan')
+        s      = prob_by_station[sid]
+        window = s[(s.index >= win_start) & (s.index <= win_end)]
+        return float(window.max()) if not window.dropna().empty else float('nan')
+
+    df_all['forecast_prob'] = [_window_max(sid) for sid in df_all['station_id']]
 
     # --- Build per-station simulation metadata for the map overlay ---
     sim_stations: list[dict] = []
