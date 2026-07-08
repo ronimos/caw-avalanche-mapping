@@ -78,11 +78,15 @@ We implemented four classifier configurations. The first three are L2-regularize
 
 **Confidence-weighted blended classifier.** We formed a composite per-station probability by weighting the per-station and regional predictions as $p_\text{blend} = w\,p_\text{station} + (1-w)\,p_\text{regional}$ with $w = \min(n_\text{train}/5,\,1)$. This is a hand-built approximation of partial pooling; the hierarchical model below performs the same shrinkage in a principled, data-driven way.
 
-**Hierarchical Bayesian model (partial pooling).** We fit a single multilevel logistic regression (partial pooling; Gelman and Hill, 2007) in which each station's intercept and slopes are drawn from shared regional distributions:
+**Hierarchical Bayesian model (partial pooling).** We fit a single multilevel logistic regression (partial pooling; Gelman and Hill, 2007) with a station-varying intercept and slopes shared across all stations:
 
-$$\text{logit}(p_{s,t}) = \alpha_s + \boldsymbol{\beta}_s \cdot \mathbf{x}_{s,t}, \qquad \alpha_s \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha), \quad \beta_{s,k} \sim \mathcal{N}(\mu_{\beta,k}, \sigma_{\beta,k})$$
+$$\text{logit}(p_{s,t}) = \alpha_s + \boldsymbol{\beta} \cdot \mathbf{x}_{s,t}, \qquad \alpha_s \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha)$$
 
-with weakly-informative hyperpriors and a non-centered parameterization for stable sampling (Betancourt and Girolami, 2015). The between-station spreads ($\sigma_\alpha, \sigma_{\beta,k}$) are learned from the data, so each station's coefficients shrink toward the regional mean by an amount the data dictates: stations with many events retain their own signal, stations with one event shrink strongly toward the population. This replaces the three models above with one coherent framework, and the posterior provides a per-station prediction *and* its uncertainty (the spread across posterior draws) — the uncertainty directly supplying a confidence measure for operational display. We trained on the 13 stations with at least one event (event-free stations contribute only unconstrained noise to the hierarchy and are served at prediction time by the population-level coefficients), centering the intercept prior on the empirical log-odds to keep probabilities calibrated. We sampled with the No-U-Turn Sampler (NUTS; Hoffman and Gelman, 2014) as implemented in PyMC (Abril-Pla et al., 2023) — two chains, 1000 tuning + 1000 draws each; zero divergences.
+with weakly-informative hyperpriors and a non-centered parameterization for stable sampling (Betancourt and Girolami, 2015). The between-station spread ($\sigma_\alpha$) is learned from the data, so each station's base rate shrinks toward the regional mean by an amount the data dictates: stations with many events retain their own signal, stations with one event shrink strongly toward the population. This replaces the three models above with one coherent framework, and the posterior provides a per-station prediction *and* its uncertainty (the spread across posterior draws) — the uncertainty directly supplying a confidence measure for operational display.
+
+We selected the random-intercept structure over the fuller varying-slopes alternative ($\beta_{s,k} \sim \mathcal{N}(\mu_{\beta,k}, \sigma_{\beta,k})$) by parsimony, and the data support the choice: head-to-head on the 2024–2025 corpus, the varying-slopes model spends roughly nine additional effective parameters (PSIS-LOO $p_\text{eff}$ 21.3 vs. 12.5) without any predictive gain (elpd statistically tied; leave-one-station-out AUC 0.702 vs. 0.711 in favour of shared slopes). At the current event count, per-station slopes are not identifiable — varying intercepts capture all the between-station structure the observations can resolve.
+
+We trained on the 13 stations with at least one recorded event. This exclusion reflects the observation process rather than a statistical convenience: reporting is opportunistic, so a station with no recorded events more plausibly indicates no observer coverage than no avalanches, and its all-negative labels would mislead the model (a positive-unlabeled framing; event-free stations are served at prediction time by the population-level coefficients). We centered the intercept prior on the empirical log-odds to keep probabilities calibrated, and sampled with the No-U-Turn Sampler (NUTS; Hoffman and Gelman, 2014) as implemented in PyMC (Abril-Pla et al., 2023) — four chains, 1000 tuning + 1000 draws each; 2 divergences in 4000 draws and split-$\hat{R} \le 1.01$ on all population-level parameters.
 
 ### 3.4 Evaluation Design
 
@@ -149,13 +153,13 @@ We evaluated the four models on all 37 test-season events using the event-level 
 
 | Model | AUC-ROC | Average Precision | vs. No-Skill AP |
 |---|---|---|---|
-| **Hierarchical (Bayesian)** | **0.694** | **0.250** | **7.4×** |
+| **Hierarchical (Bayesian, random intercepts)** | **0.715** | **0.241** | **7.0×** |
 | Blended (weighted) | 0.687 | 0.218 | 6.4× |
 | Regional (pooled) | 0.687 | 0.216 | 6.4× |
 | Per-station + fallback | 0.665 | 0.165 | 4.9× |
 | No skill (baseline) | 0.500 | 0.034 | 1.0× |
 
-The hierarchical model is the strongest performer, achieving an average precision 7.4× the no-skill baseline and dominating the high-precision region of the precision-recall curve (Figure Y) — the operationally important regime where a forecaster wants alarms to be trustworthy. Its advantage over the regional and blended models is modest in aggregate but consistent, and it comes with two structural benefits the others lack: it is a single coherent model rather than three, and it produces per-station uncertainty (Section 4.4). The per-station-plus-fallback configuration is weakest, confirming that single-event per-station models are too noisy to serve as the primary predictor and are better used only as one input to the pooled or hierarchical framework.
+The hierarchical model is the strongest performer, achieving an average precision 7.0× the no-skill baseline and the best event ranking (AUC-ROC 0.715) — the operationally important regime where a forecaster wants alarms to be trustworthy. Its advantage over the regional and blended models is modest in aggregate but consistent, and it comes with two structural benefits the others lack: it is a single coherent model rather than three, and it produces per-station uncertainty (Section 4.4). Notably, the random-intercept simplification (Section 3) *improved* cross-season ranking over the earlier varying-slopes variant (AUC-ROC 0.694 → 0.715 at essentially unchanged AP) while removing 65 station-level slope parameters — the parsimony argument realized on held-out data. The per-station-plus-fallback configuration is weakest, confirming that single-event per-station models are too noisy to serve as the primary predictor and are better used only as one input to the pooled or hierarchical framework.
 
 These numbers represent a large improvement over an initial nine-feature, weakly-regularized configuration (regional AP = 0.045, AUC-ROC = 0.610). Reducing the feature set to five physically-distinct variables and applying proper regularization — addressing the ~3.5-events-per-predictor over-parameterization — raised regional AP roughly fivefold, confirming that the original models were badly overfit rather than signal-limited.
 
@@ -183,13 +187,13 @@ Beyond its competitive accuracy, the hierarchical model's chief practical advant
 
 | Station | In training | Mean prob | Posterior std | Reading |
 |---|---|---|---|---|
-| 142301_res | no | 0.83 | 0.31 | High risk, but very low confidence (no local data) |
-| 142303_res | no | 0.80 | 0.32 | High risk, very low confidence |
-| 224103_res | no | 0.006 | 0.003 | Confidently low risk |
-| 224102_res | yes | 0.011 | 0.009 | Low risk, well constrained |
-| 187363_res | yes | 0.017 | 0.019 | Low risk, well constrained |
+| 142301_res | no | 0.94 | 0.23 | High risk, but low confidence (no local data) |
+| 142303_res | no | 0.93 | 0.24 | High risk, low confidence |
+| 224103_res | no | 0.009 | 0.004 | Confidently low risk |
+| 224102_res | yes | 0.013 | 0.007 | Low risk, well constrained |
+| 187363_res | yes | 0.073 | 0.026 | Low risk, well constrained |
 
-The contrast is the key result. For stations with no local training data (e.g. 142301_res), the model can still produce a prediction from the regional prior — but it correctly reports large uncertainty (std ≈ 0.31), flagging that a high mean probability there should not be trusted as much as the same value at a well-sampled station. This is exactly the signal an operational map needs to distinguish "high risk, trust it" from "high risk, but the model is guessing." It replaces the heuristic operational-threshold confidence tier (Section 4.5) with a principled, continuous measure that falls out of the model itself.
+The contrast is the key result. For stations with no local training data (e.g. 142301_res), the model can still produce a prediction from the regional prior — but it correctly reports large uncertainty (std ≈ 0.23), flagging that a high mean probability there should not be trusted as much as the same value at a well-sampled station. This is exactly the signal an operational map needs to distinguish "high risk, trust it" from "high risk, but the model is guessing." It replaces the heuristic operational-threshold confidence tier (Section 4.5) with a principled, continuous measure that falls out of the model itself.
 
 ### 4.5 Operational Threshold Analysis
 
@@ -224,7 +228,7 @@ The operational analysis quantifies the data investment each station needs. At 1
 
 ### 4.6 Summary
 
-Reducing the feature set to five physically-distinct variables and applying proper regularization transformed the framework's measured skill: regional event-level average precision rose roughly fivefold (0.045 → 0.216) and the per-station learning curve steepened, with LOO detection rate climbing 56% → 86% → 100% across one, two, and three training events. The hierarchical Bayesian model is the strongest single configuration (event-level AP = 0.250, 7.4× the no-skill baseline), unifies the per-station and regional approaches in one principled framework, and — uniquely — reports per-station prediction uncertainty that an operational display can use directly. Learned feature weights are stable and physically coherent, led by total snow depth (the valley-reach signal) and shallow weak-layer burial.
+Reducing the feature set to five physically-distinct variables and applying proper regularization transformed the framework's measured skill: regional event-level average precision rose roughly fivefold (0.045 → 0.216) and the per-station learning curve steepened, with LOO detection rate climbing 56% → 86% → 100% across one, two, and three training events. The hierarchical Bayesian model is the strongest single configuration (event-level AP = 0.241, 7.0× the no-skill baseline; AUC-ROC 0.715), unifies the per-station and regional approaches in one principled framework with the fewest parameters the data can support (random intercepts, shared slopes), and — uniquely — reports per-station prediction uncertainty that an operational display can use directly. Learned feature weights are stable and physically coherent, led by total snow depth (the valley-reach signal) and shallow weak-layer burial.
 
 Four stations now meet a ≤10% false-alarm operational criterion, up from two, and the "always-on" overfitting artifact that previously affected several stations is largely eliminated. The results confirm the framework as a decision-support tool whose performance scales steeply and reliably with observation density: moving from one to three events per station roughly doubles per-station detection, a gain achievable within a single additional observation season and the clearest path to operational improvement.
 

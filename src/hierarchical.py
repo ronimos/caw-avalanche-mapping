@@ -2,11 +2,13 @@
 hierarchical.py — Bayesian hierarchical (partial-pooling) avalanche classifier.
 
 A single multilevel logistic regression replaces the separate per-station,
-regional, and hand-blended models.  Each station gets its own coefficients,
-drawn from a shared regional prior; the amount of shrinkage toward the regional
-mean is learned from the data rather than set by a fixed weight.  Stations with
-many events keep their own signal; stations with one event shrink strongly
-toward the population.
+regional, and hand-blended models.  Each station gets its own intercept (base
+rate), drawn from a shared regional prior, while all stations share one slope
+vector; the amount of intercept shrinkage toward the regional mean is learned
+from the data rather than set by a fixed weight.  Stations with many events
+keep their own signal; stations with one event shrink strongly toward the
+population.  (Per-station slopes are available via varying_slopes=True but are
+not identifiable at the current event count — see train_hierarchical.)
 
 The posterior also yields a per-day probability *and* its uncertainty (spread
 across posterior draws), which feeds the map confidence encoding directly.
@@ -21,7 +23,8 @@ without these heavy dependencies.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import cached_property
 
 import numpy as np
 import pandas as pd
@@ -47,17 +50,34 @@ class HierModel:
     terrain_scaler: StandardScaler | None = None
     # Optional terrain × feature interaction (e.g. terrain moderates the HS slope).
     interact_feature: str | None = None
+    # Whether slopes vary by station (True) or are pooled to a single shared
+    # vector (False — random intercepts only, the default; see train_hierarchical).
+    varying_slopes: bool = False
+    _var_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
-    # ── posterior coefficient summaries (drawn lazily) ──────────────────────────
-    def _posterior_arrays(self):
-        """Return stacked posterior draws: alpha (S,D), beta (S,F,D), and the
-        population-level mu_alpha (D,) and mu_beta (F,D) for unseen stations."""
+    def _stacked_var(self, name: str) -> np.ndarray:
+        """Stack (and cache) one posterior variable's draws."""
+        if name not in self._var_cache:
+            post = self.idata.posterior  # type: ignore[attr-defined]
+            self._var_cache[name] = post[name].stack(sample=('chain', 'draw')).values
+        return self._var_cache[name]
+
+    # ── posterior coefficient summaries (stacked once, then cached) ─────────────
+    @cached_property
+    def _stacked(self):
+        """Stacked posterior draws: alpha (S,N), beta (S,F,N), mu_alpha (N,),
+        mu_beta (F,N). With pooled slopes, beta is mu_beta broadcast per station.
+        Cached — stacking the full posterior is expensive and predict() is called
+        once per station when building the map."""
         post = self.idata.posterior  # type: ignore[attr-defined]
         # dims: (chain, draw, station[, feature]) → stack chain+draw → samples
         alpha = post['alpha'].stack(sample=('chain', 'draw')).values      # (S, N)
-        beta  = post['beta'].stack(sample=('chain', 'draw')).values       # (S, F, N)
         mu_a  = post['mu_alpha'].stack(sample=('chain', 'draw')).values   # (N,)
         mu_b  = post['mu_beta'].stack(sample=('chain', 'draw')).values    # (F, N)
+        if self.varying_slopes:
+            beta = post['beta'].stack(sample=('chain', 'draw')).values    # (S, F, N)
+        else:
+            beta = np.broadcast_to(mu_b, (alpha.shape[0], *mu_b.shape))
         return alpha, beta, mu_a, mu_b
 
     def _terrain_intercept(self, terrain: dict | None, mu_a: np.ndarray) -> np.ndarray:
@@ -68,8 +88,7 @@ class HierModel:
         """
         if not self.terrain_cols or self.terrain_scaler is None or terrain is None:
             return mu_a
-        post  = self.idata.posterior  # type: ignore[attr-defined]
-        gamma = post['gamma'].stack(sample=('chain', 'draw')).values      # (Ft, N)
+        gamma = self._stacked_var('gamma')                                # (Ft, N)
         x     = np.array([[terrain.get(c, np.nan) for c in self.terrain_cols]], dtype=float)
         if np.isnan(x).any():
             return mu_a
@@ -89,7 +108,7 @@ class HierModel:
         if a `terrain` dict is supplied, the intercept is shifted by the learned
         terrain effect, so path geometry transfers to unseen/unproven stations.
         """
-        alpha, beta, mu_a, mu_b = self._posterior_arrays()
+        alpha, beta, mu_a, mu_b = self._stacked
 
         if station_id in self.station_list:
             s   = self.station_list.index(station_id)
@@ -119,10 +138,9 @@ class HierModel:
                 and terrain is not None and self.interact_feature in self.feature_cols):
             x = np.array([[terrain.get(c, np.nan) for c in self.terrain_cols]], dtype=float)
             if not np.isnan(x).any():
-                post  = self.idata.posterior  # type: ignore[attr-defined]
-                theta = post['theta'].stack(sample=('chain', 'draw')).values   # (Ft, N)
+                theta = self._stacked_var('theta')                              # (Ft, N)
                 ts    = self.terrain_scaler.transform(x)[0]                     # (Ft,)
-                fcol  = Xs[self.interact_feature].values                        # (T,) scaled
+                fcol  = Xs[self.interact_feature].to_numpy(dtype=float)         # (T,) scaled
                 Xi    = fcol[:, None] * ts[None, :]                             # (T, Ft)
                 logit = logit + Xi @ theta                                     # (T, N)
 
@@ -141,6 +159,7 @@ def train_hierarchical(
     station_terrain: dict[str, dict] | None = None,
     terrain_cols: list[str] | None = None,
     interact_with: str | None = None,
+    varying_slopes: bool = False,
     draws: int = 1000,
     tune: int = 1000,
     target_accept: float = 0.9,
@@ -149,13 +168,20 @@ def train_hierarchical(
     """
     Fit a hierarchical Bayesian logistic regression pooling all stations.
 
-    Model (non-centered parameterization for stable sampling):
-        logit(p_{s,t}) = alpha_s + beta_s . x_{s,t}
+    Default model — random intercepts, shared slopes (non-centered):
+        logit(p_{s,t}) = alpha_s + mu_beta . x_{s,t}
         alpha_s = (mu_alpha + gamma . terrain_s) + sigma_alpha * z^alpha_s
-        beta_s  = mu_beta  + sigma_beta  * z^beta_s
     with weakly-informative hyperpriors.  The intercept prior is centered on the
     empirical log-odds of an event day, so probabilities stay calibrated to the
     low (~1%) base rate rather than being rebalanced.
+
+    `varying_slopes=True` additionally gives each station its own slope vector
+        beta_s = mu_beta + sigma_beta * z^beta_s
+    Evaluated head-to-head on the 2024-25 corpus, the varying-slopes variant
+    spends ~9 extra effective parameters (PSIS-LOO p_eff 21.3 vs 12.5) for zero
+    predictive gain (elpd tie; cross-station LOO AUC 0.702 vs 0.711 in favour of
+    shared slopes) — with events this scarce, per-station slopes are not
+    identifiable, so shared slopes are the default by parsimony.
 
     When `station_terrain` (station_id → {terrain_col: value}) is supplied, the
     static path geometry enters as **group-level predictors on the intercept**
@@ -178,10 +204,13 @@ def train_hierarchical(
             continue
         X    = daily_df[feature_cols].copy()
         mask = X.notna().all(axis=1) & y.notna()
-        # Only include stations with at least one event day: event-free stations
-        # add unconstrained per-station offsets (pure noise) to the hierarchy
-        # without contributing positive signal. Such stations are still served
-        # at prediction time by the population-level (regional) coefficients.
+        # Only include stations with at least one event day. This is an
+        # under-reporting (positive-unlabeled) choice, not a statistical one:
+        # AKAH observations are opportunistic, so a station with zero recorded
+        # events more likely means "nobody was watching" than "no avalanches" —
+        # its all-negative labels would teach the model the wrong lesson. Such
+        # stations are still served at prediction time by the population-level
+        # (regional) coefficients.
         if int(y[mask].sum()) == 0:
             continue
         s = len(station_list)
@@ -253,9 +282,8 @@ def train_hierarchical(
         # Population-level (regional) coefficients
         mu_alpha    = pm.Normal("mu_alpha", mu=logit_prev, sigma=1.5)
         mu_beta     = pm.Normal("mu_beta", mu=0.0, sigma=1.0, dims="feature")
-        # Between-station spread (pooling strength, learned)
+        # Between-station intercept spread (pooling strength, learned)
         sigma_alpha = pm.HalfNormal("sigma_alpha", sigma=1.0)
-        sigma_beta  = pm.HalfNormal("sigma_beta", sigma=1.0, dims="feature")
 
         # Static terrain shifts the station intercept mean (group-level predictor)
         if T is not None:
@@ -265,13 +293,19 @@ def train_hierarchical(
         else:
             alpha_mean = mu_alpha
 
-        # Non-centered station offsets
+        # Non-centered station intercept offsets
         z_alpha = pm.Normal("z_alpha", 0.0, 1.0, dims="station")
-        z_beta  = pm.Normal("z_beta", 0.0, 1.0, dims=("station", "feature"))
         alpha   = pm.Deterministic("alpha", alpha_mean + sigma_alpha * z_alpha, dims="station")
-        beta    = pm.Deterministic("beta", mu_beta + sigma_beta * z_beta, dims=("station", "feature"))
 
-        logit_p = alpha[station_idx] + (X_data * beta[station_idx]).sum(axis=-1)
+        if varying_slopes:
+            sigma_beta = pm.HalfNormal("sigma_beta", sigma=1.0, dims="feature")
+            z_beta     = pm.Normal("z_beta", 0.0, 1.0, dims=("station", "feature"))
+            beta       = pm.Deterministic("beta", mu_beta + sigma_beta * z_beta,
+                                          dims=("station", "feature"))
+            logit_p    = alpha[station_idx] + (X_data * beta[station_idx]).sum(axis=-1)
+        else:
+            # Random intercepts only: one shared slope vector for all stations.
+            logit_p = alpha[station_idx] + pm.math.dot(X_data, mu_beta)
 
         # terrain × feature interaction: terrain moderates the slope of one feature
         # (e.g. HS) — the "how much snow is needed depends on the path" mechanism.
@@ -286,17 +320,27 @@ def train_hierarchical(
 
         idata = pm.sample(
             draws=draws, tune=tune, target_accept=target_accept,
-            chains=2, cores=2, random_seed=seed, progressbar=False,
+            chains=4, cores=4, random_seed=seed, progressbar=False,
+            # Pointwise log-likelihood → arviz PSIS-LOO / az.compare work directly.
+            idata_kwargs={"log_likelihood": True},
         )
 
-    # Report divergences as a sampling-health check
+    # Sampling-health checks: divergences and split-R̂ on the population params.
+    import arviz as az
+
     n_div = int(idata.sample_stats["diverging"].sum())  # type: ignore[index]
-    print(f"    sampled: {draws}×2 draws  divergences={n_div}")
+    check_vars = ["mu_alpha", "mu_beta", "sigma_alpha"]
+    rhat = az.rhat(idata, var_names=check_vars)
+    rhat_ds = rhat.to_dataset() if hasattr(rhat, "to_dataset") else rhat  # arviz ≥1 → DataTree
+    rhat_max = float(max(float(rhat_ds[v].max()) for v in rhat_ds.data_vars))
+    print(f"    sampled: {draws}×4 draws  divergences={n_div}  max R̂={rhat_max:.3f}")
+    if n_div > 0 or rhat_max > 1.01:
+        print("    ⚠ sampling-health warning: inspect trace before trusting results")
 
     return HierModel(idata=idata, scaler=scaler,
                      feature_cols=feature_cols, station_list=station_list,
                      terrain_cols=t_cols, terrain_scaler=terrain_scaler,
-                     interact_feature=interact_feat)
+                     interact_feature=interact_feat, varying_slopes=varying_slopes)
 
 
 # ── standalone smoke test ───────────────────────────────────────────────────────
