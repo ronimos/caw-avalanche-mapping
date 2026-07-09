@@ -4,6 +4,11 @@ snowpack_io.py — SNOWPACK file I/O.
 Parses both .pro and .smet simulation output files, and provides
 coordinate-based station matching.
 
+.pro parsing delegates to xsnow (https://gitlab.com/avacollabra/postprocessing/xsnow),
+reshaped back to this project's long-format layer DataFrame. .smet parsing stays
+hand-rolled: xsnow's unit registry rejects our files (dIntEnergySnow declared in
+kJ/m2, xsnow accepts only W m-2), and even unit_validation="light" raises.
+
 Public API:
   parse_snow_data          .pro  → long-format layer DataFrame
   parse_smet               .smet → time-series DataFrame
@@ -12,13 +17,18 @@ Public API:
 """
 
 import functools
+import logging
 import math
 import re
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
+import xsnow
+
+# xsnow logs an INFO line per file read; keep pipeline output clean.
+_QUIET_LOGGER = logging.getLogger('snowpack_io.xsnow')
+_QUIET_LOGGER.setLevel(logging.WARNING)
 
 # Aspect letter → numeric suffix appended to base station ID in .pro filenames.
 # Flat terrain has no suffix (empty string).
@@ -42,72 +52,58 @@ def parse_snow_data(file_path: str | Path) -> pd.DataFrame:
         sn38          — natural stability index Sn38 for this layer
 
     Layers shallower than 20 cm burial depth are excluded.
-    Record codes used:
-        0500  — timestep date
-        0501  — per-layer heights bottom→top (cm from ground)
-        0532  — per-layer Sn38 values (same order as 0501)
+
+    Parsing is delegated to xsnow, which returns layer heights and HS in
+    metres; values are converted back to the cm convention used throughout
+    this project.
     """
     MIN_BURIAL_DEPTH = 20.0  # cm
 
-    rows: list[dict[str, Any]] = []
-    cur: dict[str, Any] = {'timestamp': None, 'layer_heights': None, 'sn38_values': None}
+    # add_surface_sh_as_layer=False: don't synthesize a 1 mm surface-hoar layer
+    # from record 0514 — total_height must stay the top of the uppermost real
+    # layer, and the synthetic layer shifts burial depths at the 20 cm cutoff.
+    xs = xsnow.read(str(file_path), logger=_QUIET_LOGGER,
+                    add_surface_sh_as_layer=False)
+    if xs is None:
+        return pd.DataFrame(
+            columns=['total_height', 'layer_z', 'burial_depth', 'sn38'],
+            index=pd.DatetimeIndex([], name='timestamp'),
+        )
 
-    with open(file_path) as f:
-        for line in f:
-            parts = line.strip().split(',')
-            if not parts or not parts[0].isdigit():
-                continue
+    # Single-station file: collapse the singleton location/slope/realization dims,
+    # leaving (time, layer) arrays padded with NaN beyond each timestep's layer count.
+    ds = xs.data.squeeze(['location', 'slope', 'realization'])
 
-            code = parts[0]
+    layer_z = ds['height'].values.astype(np.float64) * 100.0  # m → cm, layer top from ground
+    sn38    = ds['sn38'].values.astype(np.float64)
+    # total_height = top of uppermost layer, matching the previous parser
+    # (not the .pro HS record, which can differ at the last decimals).
+    with np.errstate(all='ignore'):
+        total = np.nanmax(layer_z, axis=1)
 
-            if code == '0500' and parts[1] != 'Date':
-                if cur['timestamp'] and cur['layer_heights'] and cur['sn38_values']:
-                    rows.extend(_expand_layers(cur, MIN_BURIAL_DEPTH))
-                cur = {'timestamp': parts[1], 'layer_heights': None, 'sn38_values': None}
+    n_layer = layer_z.shape[1]
+    times = np.repeat(ds['time'].values, n_layer)
+    total_height = np.repeat(total, n_layer)
+    layer_z = layer_z.ravel()
+    sn38 = sn38.ravel()
+    burial_depth = total_height - layer_z
 
-            elif code == '0501' and parts[1] != 'nElems':
-                try:
-                    n = int(parts[1])
-                    cur['layer_heights'] = [float(x) for x in parts[2:2 + n]]
-                except (ValueError, IndexError):
-                    pass
+    # 0.001 cm tolerance: xsnow stores heights as float32 metres, so a layer at
+    # exactly 20.00 cm burial can land a rounding error below the threshold.
+    # .pro heights have 0.01 cm resolution, so this cannot admit extra layers.
+    keep = ~np.isnan(layer_z) & (burial_depth >= MIN_BURIAL_DEPTH - 1e-3)
 
-            elif code == '0532' and parts[1] != 'nElems':
-                try:
-                    n = int(parts[1])
-                    cur['sn38_values'] = [float(x) for x in parts[2:2 + n]]
-                except (ValueError, IndexError):
-                    pass
-
-    # Flush last timestep
-    if cur['timestamp'] and cur['layer_heights'] and cur['sn38_values']:
-        rows.extend(_expand_layers(cur, MIN_BURIAL_DEPTH))
-
-    df = pd.DataFrame(rows)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True)
+    df = pd.DataFrame(
+        {
+            'timestamp':    times[keep],
+            'total_height': total_height[keep],
+            'layer_z':      layer_z[keep],
+            'burial_depth': burial_depth[keep],
+            'sn38':         sn38[keep],
+        }
+    )
     df.set_index('timestamp', inplace=True)
     return df
-
-
-def _expand_layers(cur: dict[str, Any], min_burial: float) -> list[dict[str, Any]]:
-    """Expand a single timestep dict into one row dict per qualifying layer."""
-    heights = cur['layer_heights']
-    sn38s   = cur['sn38_values']
-    if len(heights) != len(sn38s):
-        return []
-
-    total_height = max(heights)
-    return [
-        {
-            'timestamp':    cur['timestamp'],
-            'total_height': total_height,
-            'layer_z':      z,
-            'burial_depth': total_height - z,
-            'sn38':         sn,
-        }
-        for z, sn in zip(heights, sn38s)
-        if (total_height - z) >= min_burial
-    ]
 
 
 # ── .smet parsing ─────────────────────────────────────────────────────────────
