@@ -11,10 +11,15 @@ import json
 import math
 from pathlib import Path
 
+import contextily as ctx
 import folium
+import matplotlib.patheffects as pe
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from folium.plugins import Geocoder, TimestampedGeoJson
+from matplotlib.lines import Line2D
 from plotly.subplots import make_subplots
 
 
@@ -23,15 +28,37 @@ _LAYER_PALETTE = [
     '#9467bd', '#8c564b', '#e377c2', '#17becf',
 ]
 
+# Standardized font sizes for every print figure in the paper (study-area
+# map, learning curve, feature importance, stability chart), so panels read
+# as one system regardless of whether they're matplotlib or Plotly. Figures
+# carry no title text of their own — captions in the paper cover that.
+FIG_LABEL_SIZE        = 13
+FIG_TICK_SIZE         = 12
+FIG_LEGEND_SIZE       = 11
+FIG_LEGEND_TITLE_SIZE = 12
+FIG_ANNOT_SIZE        = 11
+
+# Plotly font sizes are CSS px, not points, and print smaller than the same
+# number in matplotlib at this figure's canvas proportions — scaled up to
+# roughly match the FIG_* sizes above at print size without crowding the panel.
+PLOTLY_TITLE_SIZE  = 22
+PLOTLY_LABEL_SIZE  = 38
+PLOTLY_TICK_SIZE   = 36
+PLOTLY_LEGEND_SIZE = 32
+PLOTLY_ANNOT_SIZE  = 32
+
 # Top fraction of snowpack (by burial depth) treated as the "upper zone".
 # Must match UPPER_ZONE_FRAC in classifier.py.
 _UPPER_ZONE_FRAC = 0.40
 
+# Colors are darkened from the "obvious" red/orange/gold so the threshold
+# labels meet WCAG AA text contrast (>=3:1 at this large font size) against
+# the white margin they're drawn on; plain 'orange'/'gold' fail that check.
 _PROB_THRESHOLDS = [
     (0.80, 'black'),
-    (0.65, 'red'),
-    (0.50, 'orange'),
-    (0.33, 'gold'),
+    (0.65, '#CC0000'),
+    (0.50, '#B35900'),
+    (0.33, '#8B6508'),
 ]
 
 
@@ -81,6 +108,24 @@ def _get_dominant_layers(df: pd.DataFrame, z_tolerance: float = 3.0) -> pd.DataF
 
 # ── plotting ──────────────────────────────────────────────────────────────────
 
+def _sanitize_timestamps(obj):
+    """
+    Recursively replace pandas Timestamps with plain datetimes.
+
+    kaleido's orjson-based serializer doesn't recognize pd.Timestamp (a C
+    extension type) even though it subclasses datetime.datetime, so any
+    Timestamp reachable from fig.to_dict() (annotations, shapes, axis ranges)
+    must be converted before a static image export.
+    """
+    if isinstance(obj, pd.Timestamp):
+        return obj.to_pydatetime()
+    if isinstance(obj, dict):
+        return {k: _sanitize_timestamps(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_timestamps(v) for v in obj]
+    return obj
+
+
 def plot_interactive_stability(
     df: pd.DataFrame,
     output_path: Path,
@@ -92,6 +137,8 @@ def plot_interactive_stability(
     forecast_date: pd.Timestamp | None = None,
     aspect: str = "",
     confidence_tier: str = "",
+    png_path: Path | None = None,
+    png_rows: list[str] | None = None,
 ) -> None:
     """
     Generates an interactive Plotly HTML stability chart.
@@ -102,6 +149,16 @@ def plot_interactive_stability(
                Sn38 (circle = upper zone, diamond = lower zone).
     Panel 3 — Loading (optional, requires daily_df): daily new snow (HN24) and
                air temperature (TA).
+
+    Args:
+        png_path: When given, also renders a static PNG snapshot (e.g. for a
+                  print figure) with the rangeslider widget hidden — the
+                  rangeslider is an HTML-only interactive control and has no
+                  place in a static image.
+        png_rows: Restricts the PNG export to a subset of {'prob', 'strat',
+                  'load'} (e.g. ['prob'] for a probability-only print figure).
+                  The interactive HTML always keeps every available panel;
+                  this only trims the static image.
     """
     dominant = _get_dominant_layers(df)
     hs_ts    = df.groupby(df.index)['total_height'].first()
@@ -131,299 +188,343 @@ def plot_interactive_stability(
         ]
         has_loading = not daily_df.empty
 
-    # ── Build subplot layout: prob on top, then strat, then loading ───────────
-    row_keys: list[str] = []
-    if has_prob:
-        row_keys.append('prob')
-    row_keys.append('strat')
-    if has_loading:
-        row_keys.append('load')
-
-    n_rows = len(row_keys)
-    specs  = [[{"secondary_y": True} if k == 'load' else {}] for k in row_keys]
-
-    if n_rows == 1:
-        row_heights = [1.0]
-    elif n_rows == 2:
-        row_heights = [0.40, 0.60] if row_keys[0] == 'prob' else [0.60, 0.40]
-    else:
-        row_heights = [0.35, 0.40, 0.25]
-
-    panel_titles = {
-        'prob':  "Avalanche Probability — 2025–26 Season",
-        'strat': "Snow Stratigraphy — Weak Layers by Height",
-        'load':  "New Snow (HN24) & Air Temperature",
-    }
-
-    fig = make_subplots(
-        rows=n_rows, cols=1,
-        specs=specs,
-        shared_xaxes=True,
-        vertical_spacing=0.07,
-        subplot_titles=tuple(panel_titles[k] for k in row_keys),
-        row_heights=row_heights,
-    )
-
-    strat_row = row_keys.index('strat') + 1
-    load_row  = row_keys.index('load') + 1 if 'load' in row_keys else None
-    prob_row  = row_keys.index('prob') + 1 if 'prob' in row_keys else None
-
     x_min = x_min_raw
     x_max = x_max_raw
 
-    # ── Panel 1: Stratigraphy ─────────────────────────────────────────────────
+    def _build(allowed: set[str] | None, include_title: bool = True) -> tuple[go.Figure, str, int]:
+        """
+        Builds the multi-panel figure, optionally restricted to `allowed` row keys.
 
-    # Faint blue bands on rain days
-    if has_loading and 'rain_sum' in daily_df.columns:  # type: ignore[union-attr]
-        for rday in daily_df[daily_df['rain_sum'] > 0].index:  # type: ignore[index]
-            fig.add_shape(
-                type='rect',
-                x0=rday, x1=rday + pd.Timedelta(days=1),
-                y0=0, y1=hs_ts.max() * 1.15,
-                fillcolor='rgba(30,100,220,0.07)', line_width=0,
-                row=strat_row, col=1,
-            )
+        include_title: Panel titles and the overall station/aspect/confidence
+                       title are HTML-only — the print figure relies on its
+                       LaTeX caption instead, so it's built with no titles at all.
+        """
+        # ── Build subplot layout: prob on top, then strat, then loading ───────
+        row_keys: list[str] = []
+        if has_prob and (allowed is None or 'prob' in allowed):
+            row_keys.append('prob')
+        if allowed is None or 'strat' in allowed:
+            row_keys.append('strat')
+        if has_loading and (allowed is None or 'load' in allowed):
+            row_keys.append('load')
 
-    # Snow surface
-    fig.add_trace(go.Scatter(
-        x=hs_ts.index, y=hs_ts.values,
-        name="Snow Surface (HS)",
-        line=dict(color='rgba(140,140,140,0.55)', width=2),
-        hovertemplate="HS: %{y:.1f} cm<extra></extra>",
-    ), row=strat_row, col=1)
+        n_rows = len(row_keys)
+        specs  = [[{"secondary_y": True} if k == 'load' else {}] for k in row_keys]
 
-    # Zone boundary (60 % of HS height from ground)
-    fig.add_trace(go.Scatter(
-        x=zone_boundary_z.index, y=zone_boundary_z.values,
-        name="Zone boundary (40 % depth)",
-        line=dict(color='rgba(80,80,80,0.30)', width=1, dash='dot'),
-        hovertemplate="Zone split: %{y:.1f} cm<extra></extra>",
-    ), row=strat_row, col=1)
+        if n_rows == 1:
+            row_heights = [1.0]
+        elif n_rows == 2:
+            row_heights = [0.40, 0.60] if row_keys[0] == 'prob' else [0.60, 0.40]
+        else:
+            row_heights = [0.35, 0.40, 0.25]
 
-    # Dominant layers: circle = upper zone, diamond = lower zone
-    colorbar_shown = False
-    for i, label in enumerate(sorted(dominant['layer_label'].unique())):
-        sub    = dominant[dominant['layer_label'] == label]
-        colour = _LAYER_PALETTE[i % len(_LAYER_PALETTE)]
+        panel_titles = {
+            'prob':  "Avalanche Probability — 2025–26 Season",
+            'strat': "Snow Stratigraphy — Weak Layers by Height",
+            'load':  "New Snow (HN24) & Air Temperature",
+        }
 
-        for is_upper, symbol in [(True, 'circle'), (False, 'diamond')]:
-            sub_z = sub[sub['is_upper'] == is_upper]
-            if sub_z.empty:
-                continue
-            zone_name = 'upper' if is_upper else 'lower'
-            show_cb   = not colorbar_shown
-            if show_cb:
-                colorbar_shown = True
+        fig = make_subplots(
+            rows=n_rows, cols=1,
+            specs=specs,
+            shared_xaxes=True,
+            vertical_spacing=0.07,
+            subplot_titles=(tuple(panel_titles[k] for k in row_keys)
+                             if include_title else None),
+            row_heights=row_heights,
+        )
+        if include_title:
+            # subplot_titles are the only annotations on the figure at this
+            # point, so this sizes just the panel titles (not the
+            # event/forecast labels added further below).
+            for ann in fig.layout.annotations:
+                ann.update(font=dict(size=PLOTLY_TITLE_SIZE))
 
+        strat_row = row_keys.index('strat') + 1 if 'strat' in row_keys else None
+        load_row  = row_keys.index('load') + 1 if 'load' in row_keys else None
+        prob_row  = row_keys.index('prob') + 1 if 'prob' in row_keys else None
+
+        # Row that carries the event/forecast-date text annotations (shapes
+        # still span every row); prefers stratigraphy, else whatever exists.
+        label_row = strat_row or prob_row or load_row
+
+        # ── Panel: Stratigraphy ────────────────────────────────────────────────
+        if strat_row is not None:
+            # Faint blue bands on rain days
+            if has_loading and 'rain_sum' in daily_df.columns:  # type: ignore[union-attr]
+                for rday in daily_df[daily_df['rain_sum'] > 0].index:  # type: ignore[index]
+                    fig.add_shape(
+                        type='rect',
+                        x0=rday, x1=rday + pd.Timedelta(days=1),
+                        y0=0, y1=hs_ts.max() * 1.15,
+                        fillcolor='rgba(30,100,220,0.07)', line_width=0,
+                        row=strat_row, col=1,
+                    )
+
+            # Snow surface
             fig.add_trace(go.Scatter(
-                x=sub_z.index,
-                y=sub_z['layer_z'],
-                mode='markers',
-                name=f"{label} ({zone_name})",
-                marker=dict(
-                    size=9, symbol=symbol,
-                    color=sub_z['sn38'],
-                    colorscale='RdYlGn', cmin=1.0, cmax=6.0,
-                    showscale=show_cb,
-                    colorbar=dict(title="Sn38", thickness=14, len=0.45, y=0.75),
-                    line=dict(width=1.2, color=colour),
-                ),
-                customdata=sub_z[['burial_depth', 'sn38']].values,
-                hovertemplate=(
-                    f"<b>{label} ({zone_name})</b><br>"
-                    "Height: %{y:.1f} cm<br>"
-                    "Burial: %{customdata[0]:.1f} cm<br>"
-                    "Sn38: %{customdata[1]:.2f}<extra></extra>"
-                ),
+                x=hs_ts.index, y=hs_ts.values,
+                name="Snow Surface (HS)",
+                line=dict(color='rgba(140,140,140,0.55)', width=2),
+                hovertemplate="HS: %{y:.1f} cm<extra></extra>",
             ), row=strat_row, col=1)
 
-    # ── Panel 2: Loading / Temperature ───────────────────────────────────────
-    if has_loading and load_row is not None and daily_df is not None:
-        if 'HN24' in daily_df.columns:
-            fig.add_trace(go.Bar(
-                x=daily_df.index, y=daily_df['HN24'],
-                name="HN24 (m)",
-                marker_color='rgba(70,130,200,0.72)',
-                hovertemplate="HN24: %{y:.3f} m<extra></extra>",
-            ), row=load_row, col=1, secondary_y=False)
-
-        if 'TA_max' in daily_df.columns:
-            ta = daily_df['TA_max']
-            # 0 °C reference
+            # Zone boundary (60 % of HS height from ground)
             fig.add_trace(go.Scatter(
-                x=[x_min, x_max], y=[0, 0],
-                mode='lines', showlegend=False, hoverinfo='skip',
-                line=dict(color='rgba(220,80,60,0.40)', width=1, dash='dash'),
-            ), row=load_row, col=1, secondary_y=True)
-            # Temperature line
+                x=zone_boundary_z.index, y=zone_boundary_z.values,
+                name="Zone boundary (40 % depth)",
+                line=dict(color='rgba(80,80,80,0.30)', width=1, dash='dot'),
+                hovertemplate="Zone split: %{y:.1f} cm<extra></extra>",
+            ), row=strat_row, col=1)
+
+            # Dominant layers: circle = upper zone, diamond = lower zone
+            colorbar_shown = False
+            for i, label in enumerate(sorted(dominant['layer_label'].unique())):
+                sub    = dominant[dominant['layer_label'] == label]
+                colour = _LAYER_PALETTE[i % len(_LAYER_PALETTE)]
+
+                for is_upper, symbol in [(True, 'circle'), (False, 'diamond')]:
+                    sub_z = sub[sub['is_upper'] == is_upper]
+                    if sub_z.empty:
+                        continue
+                    zone_name = 'upper' if is_upper else 'lower'
+                    show_cb   = not colorbar_shown
+                    if show_cb:
+                        colorbar_shown = True
+
+                    fig.add_trace(go.Scatter(
+                        x=sub_z.index,
+                        y=sub_z['layer_z'],
+                        mode='markers',
+                        name=f"{label} ({zone_name})",
+                        marker=dict(
+                            size=9, symbol=symbol,
+                            color=sub_z['sn38'],
+                            colorscale='RdYlGn', cmin=1.0, cmax=6.0,
+                            showscale=show_cb,
+                            colorbar=dict(title="Sn38", thickness=14, len=0.45, y=0.75),
+                            line=dict(width=1.2, color=colour),
+                        ),
+                        customdata=sub_z[['burial_depth', 'sn38']].values,
+                        hovertemplate=(
+                            f"<b>{label} ({zone_name})</b><br>"
+                            "Height: %{y:.1f} cm<br>"
+                            "Burial: %{customdata[0]:.1f} cm<br>"
+                            "Sn38: %{customdata[1]:.2f}<extra></extra>"
+                        ),
+                    ), row=strat_row, col=1)
+
+        # ── Panel: Loading / Temperature ──────────────────────────────────────
+        if has_loading and load_row is not None and daily_df is not None:
+            if 'HN24' in daily_df.columns:
+                fig.add_trace(go.Bar(
+                    x=daily_df.index, y=daily_df['HN24'],
+                    name="HN24 (m)",
+                    marker_color='rgba(70,130,200,0.72)',
+                    hovertemplate="HN24: %{y:.3f} m<extra></extra>",
+                ), row=load_row, col=1, secondary_y=False)
+
+            if 'TA_max' in daily_df.columns:
+                ta = daily_df['TA_max']
+                # 0 °C reference
+                fig.add_trace(go.Scatter(
+                    x=[x_min, x_max], y=[0, 0],
+                    mode='lines', showlegend=False, hoverinfo='skip',
+                    line=dict(color='rgba(220,80,60,0.40)', width=1, dash='dash'),
+                ), row=load_row, col=1, secondary_y=True)
+                # Temperature line
+                fig.add_trace(go.Scatter(
+                    x=ta.index, y=ta.values,
+                    name="TA max (°C)",
+                    line=dict(color='rgba(220,80,60,0.85)', width=1.5),
+                    hovertemplate="TA: %{y:.1f} °C<extra></extra>",
+                ), row=load_row, col=1, secondary_y=True)
+
+            fig.update_yaxes(
+                title_text="HN24 (m)", title_font=dict(size=PLOTLY_LABEL_SIZE),
+                rangemode='tozero',
+                row=load_row, col=1, secondary_y=False,
+            )
+            fig.update_yaxes(
+                title_text="TA (°C)", title_font=dict(size=PLOTLY_LABEL_SIZE),
+                row=load_row, col=1, secondary_y=True,
+            )
+
+        # ── Panel: Probability ─────────────────────────────────────────────────
+        if has_prob and prob_series is not None and prob_row is not None:
+            prob_clean = prob_series.dropna()
+
+            # Coloured background zones as filled polygons (avoids axis-ref complexity)
+            bands = [
+                (0.80, 1.00, 'rgba(0,0,0,0.08)'),
+                (0.65, 0.80, 'rgba(200,50,50,0.10)'),
+                (0.50, 0.65, 'rgba(255,140,0,0.12)'),
+                (0.33, 0.50, 'rgba(255,215,0,0.13)'),
+            ]
+            for y_lo, y_hi, fill in bands:
+                fig.add_trace(go.Scatter(
+                    x=[x_min, x_max, x_max, x_min, x_min],
+                    y=[y_lo,  y_lo,  y_hi,  y_hi,  y_lo],
+                    fill='toself', fillcolor=fill,
+                    line=dict(width=0), mode='lines',
+                    showlegend=False, hoverinfo='skip',
+                ), row=prob_row, col=1)
+
+            # Probability curve
             fig.add_trace(go.Scatter(
-                x=ta.index, y=ta.values,
-                name="TA max (°C)",
-                line=dict(color='rgba(220,80,60,0.85)', width=1.5),
-                hovertemplate="TA: %{y:.1f} °C<extra></extra>",
-            ), row=load_row, col=1, secondary_y=True)
-
-        fig.update_yaxes(
-            title_text="HN24 (m)", rangemode='tozero',
-            row=load_row, col=1, secondary_y=False,
-        )
-        fig.update_yaxes(
-            title_text="TA (°C)",
-            row=load_row, col=1, secondary_y=True,
-        )
-
-    # ── Panel 3: Probability ──────────────────────────────────────────────────
-    if has_prob and prob_series is not None and prob_row is not None:
-        prob_clean = prob_series.dropna()
-
-        # Coloured background zones as filled polygons (avoids axis-ref complexity)
-        bands = [
-            (0.80, 1.00, 'rgba(0,0,0,0.08)'),
-            (0.65, 0.80, 'rgba(200,50,50,0.10)'),
-            (0.50, 0.65, 'rgba(255,140,0,0.12)'),
-            (0.33, 0.50, 'rgba(255,215,0,0.13)'),
-        ]
-        for y_lo, y_hi, fill in bands:
-            fig.add_trace(go.Scatter(
-                x=[x_min, x_max, x_max, x_min, x_min],
-                y=[y_lo,  y_lo,  y_hi,  y_hi,  y_lo],
-                fill='toself', fillcolor=fill,
-                line=dict(width=0), mode='lines',
-                showlegend=False, hoverinfo='skip',
+                x=prob_clean.index, y=prob_clean.values,
+                name="Avalanche Probability",
+                mode='lines',
+                line=dict(color='#333333', width=2),
+                fill='tozeroy', fillcolor='rgba(100,100,200,0.10)',
+                hovertemplate="Prob: %{y:.1%}<extra></extra>",
             ), row=prob_row, col=1)
 
-        # Probability curve
-        fig.add_trace(go.Scatter(
-            x=prob_clean.index, y=prob_clean.values,
-            name="Avalanche Probability",
-            mode='lines',
-            line=dict(color='#333333', width=2),
-            fill='tozeroy', fillcolor='rgba(100,100,200,0.10)',
-            hovertemplate="Prob: %{y:.1%}<extra></extra>",
-        ), row=prob_row, col=1)
+            # Threshold lines + labels as traces (avoids axis-ref issues)
+            for threshold, colour in _PROB_THRESHOLDS:
+                fig.add_trace(go.Scatter(
+                    x=[x_min, x_max], y=[threshold, threshold],
+                    mode='lines', showlegend=False, hoverinfo='skip',
+                    line=dict(color=colour, width=1.2, dash='dot'),
+                ), row=prob_row, col=1)
+                fig.add_annotation(
+                    x=x_max, y=threshold,
+                    text=f"  {int(threshold * 100)} %",
+                    showarrow=False, xanchor='left',
+                    font=dict(color=colour, size=PLOTLY_ANNOT_SIZE),
+                    row=prob_row, col=1,
+                )
 
-        # Threshold lines + labels as traces (avoids axis-ref issues)
-        for threshold, colour in _PROB_THRESHOLDS:
-            fig.add_trace(go.Scatter(
-                x=[x_min, x_max], y=[threshold, threshold],
-                mode='lines', showlegend=False, hoverinfo='skip',
-                line=dict(color=colour, width=1.2, dash='dot'),
-            ), row=prob_row, col=1)
+            fig.update_yaxes(
+                title_text="Probability", title_font=dict(size=PLOTLY_LABEL_SIZE),
+                tickformat='.0%',
+                range=[0, 1], row=prob_row, col=1,
+            )
+
+        # ── Train event markers (red) ──────────────────────────────────────────
+        for edate in (event_dates or []):
+            for r in range(1, n_rows + 1):
+                fig.add_shape(
+                    type='line',
+                    x0=edate, x1=edate, y0=0, y1=1,
+                    yref='y domain',
+                    line=dict(color='red', width=1.5, dash='dash'),
+                    row=r, col=1,
+                )
             fig.add_annotation(
-                x=x_max, y=threshold,
-                text=f"  {int(threshold * 100)} %",
+                x=edate, y=1, yref='y domain',
+                text=edate.strftime('%b %d'),
                 showarrow=False, xanchor='left',
-                font=dict(color=colour, size=10),
-                row=prob_row, col=1,
+                font=dict(color='red', size=PLOTLY_ANNOT_SIZE),
+                row=label_row, col=1,
             )
 
-        fig.update_yaxes(
-            title_text="Probability", tickformat='.0%',
-            range=[0, 1], row=prob_row, col=1,
+        # ── Test event markers (blue, held-out) ────────────────────────────────
+        for edate in (test_dates or []):
+            for r in range(1, n_rows + 1):
+                fig.add_shape(
+                    type='line',
+                    x0=edate, x1=edate, y0=0, y1=1,
+                    yref='y domain',
+                    line=dict(color='royalblue', width=1.5, dash='dot'),
+                    row=r, col=1,
+                )
+            fig.add_annotation(
+                x=edate, y=0.88, yref='y domain',
+                text=edate.strftime('%b %d') + ' (test)',
+                showarrow=False, xanchor='left',
+                font=dict(color='royalblue', size=PLOTLY_ANNOT_SIZE),
+                row=label_row, col=1,
+            )
+
+        # ── Forecast window highlight ──────────────────────────────────────────
+        if forecast_date is not None:
+            fw_start = forecast_date - pd.Timedelta(days=1)
+            fw_end   = forecast_date + pd.Timedelta(days=2)
+            for r in range(1, n_rows + 1):
+                # Semi-transparent green band covering the window
+                fig.add_shape(
+                    type='rect',
+                    x0=fw_start, x1=fw_end,
+                    y0=0, y1=1, yref='y domain',
+                    fillcolor='rgba(60,180,100,0.10)',
+                    line=dict(width=0),
+                    row=r, col=1,
+                )
+                # Dashed "now" line at the forecast reference date
+                fig.add_shape(
+                    type='line',
+                    x0=forecast_date, x1=forecast_date,
+                    y0=0, y1=1, yref='y domain',
+                    line=dict(color='rgba(40,150,80,0.80)', width=1.5, dash='dash'),
+                    row=r, col=1,
+                )
+            fig.add_annotation(
+                x=forecast_date, y=1, yref='y domain',
+                text=f"  {forecast_date.strftime('%b %d')} (now)",
+                showarrow=False, xanchor='left',
+                font=dict(color='rgb(40,150,80)', size=PLOTLY_ANNOT_SIZE),
+                row=label_row, col=1,
+            )
+
+        # ── Layout ──────────────────────────────────────────────────────────────
+        if strat_row is not None:
+            fig.update_yaxes(title_text="Height from ground (cm)",
+                              title_font=dict(size=PLOTLY_LABEL_SIZE),
+                              row=strat_row, col=1)
+
+        height = {1: 800, 2: 750, 3: 1000}.get(n_rows, 1000)
+
+        # Rangeslider on the bottom-most available panel.
+        slider_row = load_row or strat_row or prob_row
+        slider_key = (f"xaxis{slider_row}_rangeslider_visible" if slider_row > 1
+                      else "xaxis_rangeslider_visible")
+
+        # Build title: station, aspect, confidence (HTML only — see include_title)
+        title_text = ""
+        if include_title:
+            sid_clean  = station_id.replace('_res', '')
+            tier_label = {'ready': 'Ready', 'marginal': 'Marginal', 'not_ready': 'Not ready'}.get(
+                confidence_tier, ''
+            )
+            title_parts = [f"Station {sid_clean}"]
+            if aspect:
+                title_parts.append(f"Aspect: {aspect}")
+            if tier_label:
+                title_parts.append(f"Confidence: {tier_label}")
+            title_text = "  |  ".join(title_parts)
+
+        fig.update_layout(
+            height=height,
+            title_text=title_text,
+            title_font=dict(size=PLOTLY_TITLE_SIZE),
+            template="plotly_white",
+            hovermode="x unified",
+            xaxis_range=[x_min, x_max],
+            xaxis_autorange=False,
+            **{slider_key: True, slider_key.replace("visible", "thickness"): 0.04},
+            legend=dict(orientation='h', y=-0.08, font=dict(size=PLOTLY_LEGEND_SIZE)),
+            bargap=0.15,
+            margin=dict(r=140),
         )
+        # Enforce range on every x-axis in the figure (shared axes get their own key)
+        fig.update_xaxes(range=[x_min, x_max], autorange=False,
+                          tickfont=dict(size=PLOTLY_TICK_SIZE))
+        fig.update_yaxes(tickfont=dict(size=PLOTLY_TICK_SIZE))
 
-    # ── Train event markers (red) ─────────────────────────────────────────────
-    for edate in (event_dates or []):
-        for r in range(1, n_rows + 1):
-            fig.add_shape(
-                type='line',
-                x0=edate, x1=edate, y0=0, y1=1,
-                yref='y domain',
-                line=dict(color='red', width=1.5, dash='dash'),
-                row=r, col=1,
-            )
-        fig.add_annotation(
-            x=edate, y=1, yref='y domain',
-            text=edate.strftime('%b %d'),
-            showarrow=False, xanchor='left',
-            font=dict(color='red', size=11),
-            row=strat_row, col=1,
-        )
+        return fig, slider_key, height
 
-    # ── Test event markers (blue, held-out) ───────────────────────────────────
-    for edate in (test_dates or []):
-        for r in range(1, n_rows + 1):
-            fig.add_shape(
-                type='line',
-                x0=edate, x1=edate, y0=0, y1=1,
-                yref='y domain',
-                line=dict(color='royalblue', width=1.5, dash='dot'),
-                row=r, col=1,
-            )
-        fig.add_annotation(
-            x=edate, y=0.88, yref='y domain',
-            text=edate.strftime('%b %d') + ' (test)',
-            showarrow=False, xanchor='left',
-            font=dict(color='royalblue', size=11),
-            row=strat_row, col=1,
-        )
+    html_fig, html_slider_key, html_height = _build(None)
+    html_fig.write_html(str(output_path))
 
-    # ── Forecast window highlight ─────────────────────────────────────────────
-    if forecast_date is not None:
-        fw_start = forecast_date - pd.Timedelta(days=1)
-        fw_end   = forecast_date + pd.Timedelta(days=2)
-        for r in range(1, n_rows + 1):
-            # Semi-transparent green band covering the window
-            fig.add_shape(
-                type='rect',
-                x0=fw_start, x1=fw_end,
-                y0=0, y1=1, yref='y domain',
-                fillcolor='rgba(60,180,100,0.10)',
-                line=dict(width=0),
-                row=r, col=1,
-            )
-            # Dashed "now" line at the forecast reference date
-            fig.add_shape(
-                type='line',
-                x0=forecast_date, x1=forecast_date,
-                y0=0, y1=1, yref='y domain',
-                line=dict(color='rgba(40,150,80,0.80)', width=1.5, dash='dash'),
-                row=r, col=1,
-            )
-        fig.add_annotation(
-            x=forecast_date, y=1, yref='y domain',
-            text=f"  {forecast_date.strftime('%b %d')} (now)",
-            showarrow=False, xanchor='left',
-            font=dict(color='rgb(40,150,80)', size=11),
-            row=strat_row, col=1,
-        )
-
-    # ── Layout ────────────────────────────────────────────────────────────────
-    fig.update_yaxes(title_text="Height from ground (cm)", row=strat_row, col=1)
-
-    height = {1: 500, 2: 750, 3: 1000}.get(n_rows, 1000)
-
-    # Rangeslider on the bottom-most panel.
-    slider_row = load_row if load_row else strat_row
-    slider_key = f"xaxis{slider_row}_rangeslider_visible" if slider_row > 1 else "xaxis_rangeslider_visible"
-
-    # Build title: station, aspect, confidence
-    sid_clean  = station_id.replace('_res', '')
-    tier_label = {'ready': 'Ready', 'marginal': 'Marginal', 'not_ready': 'Not ready'}.get(
-        confidence_tier, ''
-    )
-    title_parts = [f"Station {sid_clean}"]
-    if aspect:
-        title_parts.append(f"Aspect: {aspect}")
-    if tier_label:
-        title_parts.append(f"Confidence: {tier_label}")
-    title_text = "  |  ".join(title_parts)
-
-    fig.update_layout(
-        height=height,
-        title_text=title_text,
-        title_font=dict(size=14),
-        template="plotly_white",
-        hovermode="x unified",
-        xaxis_range=[x_min, x_max],
-        xaxis_autorange=False,
-        **{slider_key: True, slider_key.replace("visible", "thickness"): 0.04},
-        legend=dict(orientation='h', y=-0.08),
-        bargap=0.15,
-    )
-    # Enforce range on every x-axis in the figure (shared axes get their own key)
-    fig.update_xaxes(range=[x_min, x_max], autorange=False)
-    fig.write_html(str(output_path))
+    if png_path is not None:
+        if png_rows is not None:
+            png_fig, png_slider_key, png_height = _build(set(png_rows), include_title=False)
+        else:
+            png_fig, png_slider_key, png_height = html_fig, html_slider_key, html_height
+        png_fig.update_layout(**{png_slider_key: False})
+        clean_fig = go.Figure(_sanitize_timestamps(png_fig.to_dict()))
+        clean_fig.write_image(str(png_path), width=1600, height=png_height, scale=2)
 
 
 # ── map ───────────────────────────────────────────────────────────────────────
@@ -1123,6 +1224,252 @@ def create_avalanche_map(
         )
 
     m.save(str(output_path))
+
+
+# Six-level probability color scale, matching the JS point_to_layer /
+# _sim_layer_html scales used by the interactive map above.
+_MAP_PROB_COLORS = [
+    (0.80, '#7b0000', '≥ 80 %'),
+    (0.65, '#d62728', '65 – 80 %'),
+    (0.50, '#ff7f0e', '50 – 65 %'),
+    (0.33, '#e6c200', '33 – 50 %'),
+    (0.00, '#2ca02c', '< 33 %'),
+]
+_MAP_PROB_NO_CLASSIFIER = '#808080'
+
+# Admin-0 country polygons for the study region (Natural Earth 1:50m,
+# trimmed to Central/South Asia), bundled locally so the study-area map
+# doesn't depend on an external vector source at render time. Drawn as
+# plain polylines rather than a basemap raster overlay so line width and
+# label placement are under our control.
+_COUNTRY_BORDERS_PATH = Path(__file__).resolve().parent.parent / 'data' / 'geo' / 'central_asia_countries.geojson'
+_country_borders_cache: list[dict] | None = None
+
+
+def _map_prob_color(p: float | None) -> str:
+    if p is None or (isinstance(p, float) and math.isnan(p)):
+        return _MAP_PROB_NO_CLASSIFIER
+    for threshold, color, _ in _MAP_PROB_COLORS:
+        if p >= threshold:
+            return color
+    return _MAP_PROB_COLORS[-1][1]
+
+
+def _load_country_borders() -> list[dict]:
+    global _country_borders_cache
+    if _country_borders_cache is None:
+        with open(_COUNTRY_BORDERS_PATH) as fh:
+            _country_borders_cache = json.load(fh)['features']
+    return _country_borders_cache
+
+
+def _point_in_ring(x: float, y: float, ring: list[list[float]]) -> bool:
+    """Standard PNPOLY even-odd ray-casting test."""
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _point_in_country(x: float, y: float, polys: list) -> bool:
+    for poly in polys:
+        if _point_in_ring(x, y, poly[0]) and not any(
+            _point_in_ring(x, y, hole) for hole in poly[1:]
+        ):
+            return True
+    return False
+
+
+def _label_position(
+    in_view: list[tuple[float, float]],
+    polys: list,
+    avoid_points: list[tuple[float, float]],
+) -> tuple[float, float]:
+    """
+    Pick a label anchor near the centroid of `in_view` vertices that stays
+    clear of `avoid_points` (station/observation markers). Tries the
+    centroid plus eight offsets around it, discards any candidate that
+    falls outside the country's own polygon (so a nudge never lands the
+    label in a neighboring country), and keeps whichever of the rest
+    maximizes distance to the nearest avoid_point.
+    """
+    xs = [p[0] for p in in_view]
+    ys = [p[1] for p in in_view]
+    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+    if not avoid_points:
+        return cx, cy
+
+    dx = (max(xs) - min(xs)) * 0.22 or 0.3
+    dy = (max(ys) - min(ys)) * 0.22 or 0.3
+    candidates = [(cx, cy)] + [
+        (cx + fx * dx, cy + fy * dy)
+        for fx in (-1, 0, 1) for fy in (-1, 0, 1) if not (fx == 0 and fy == 0)
+    ]
+    valid = [pt for pt in candidates if _point_in_country(pt[0], pt[1], polys)]
+    if not valid:
+        valid = [(cx, cy)]
+
+    def min_dist(pt: tuple[float, float]) -> float:
+        return min(math.hypot(pt[0] - ax_, pt[1] - ay_) for ax_, ay_ in avoid_points)
+
+    return max(valid, key=min_dist)
+
+
+def _draw_country_borders(
+    ax,
+    extent: tuple[float, float, float, float],
+    avoid_points: list[tuple[float, float]] | None = None,
+    linewidth: float = 2.2,
+    color: str = 'black',
+) -> None:
+    """
+    Draw country border polylines and name labels within `extent`
+    (lon_min, lon_max, lat_min, lat_max), from the bundled Natural Earth
+    admin-0 polygons. A country's label is anchored near the centroid of
+    its own vertices that fall inside `extent` (so labels stay on-map even
+    though the source polygons extend far beyond it), nudged away from
+    `avoid_points` so it doesn't land under a station/observation marker.
+    """
+    lon_min, lon_max, lat_min, lat_max = extent
+    avoid_points = avoid_points or []
+    for feat in _load_country_borders():
+        geom = feat['geometry']
+        polys = geom['coordinates'] if geom['type'] == 'MultiPolygon' else [geom['coordinates']]
+        in_view: list[tuple[float, float]] = []
+        for poly in polys:
+            for ring in poly:
+                xs = [pt[0] for pt in ring]
+                ys = [pt[1] for pt in ring]
+                ax.plot(xs, ys, color=color, linewidth=linewidth,
+                        solid_capstyle='round', zorder=2)
+                in_view.extend(
+                    (x, y) for x, y in zip(xs, ys)
+                    if lon_min <= x <= lon_max and lat_min <= y <= lat_max
+                )
+        if in_view:
+            label_x, label_y = _label_position(in_view, polys, avoid_points)
+            ax.text(
+                label_x, label_y, feat['properties']['name'].upper(),
+                color='black', fontsize=FIG_LABEL_SIZE, fontweight='bold',
+                ha='center', va='center', zorder=2,
+                path_effects=[pe.withStroke(linewidth=3, foreground='white')],
+            )
+
+
+def plot_static_map(
+    df: pd.DataFrame,
+    sim_stations: list[dict],
+    forecast_date: pd.Timestamp,
+    output_path: Path,
+) -> None:
+    """
+    Render a static, print-quality study-area map: SNOWPACK virtual stations
+    as circles ringed by their forecast-window max probability, and that
+    day's avalanche observations as triangles colored the same way.
+
+    Stations that have never been matched to an observation (see
+    Observation-to-Station Matching) are drawn at reduced opacity so the
+    reader's eye goes to stations with a real event history.
+
+    Args:
+        df:            Must contain Latitude, Longitude, date, forecast_prob,
+                       station_id columns (as built in main._load_observations
+                       / main's forecast_prob assignment).
+        sim_stations:  List of station metadata dicts (id, lat, lon,
+                       forecast_prob), as built in main.py for create_avalanche_map.
+        forecast_date: Reference date; the window shown is [date-1, date+2].
+        output_path:   Destination PNG file.
+    """
+    matched_stations = set(df['station_id'].dropna())
+
+    fig, ax = plt.subplots(figsize=(8, 6.2))
+
+    for s in sim_stations:
+        color   = _map_prob_color(s.get('forecast_prob'))
+        matched = s['id'] in matched_stations
+        ax.scatter(
+            s['lon'], s['lat'],
+            s=150 if matched else 90, marker='o',
+            facecolor=color, edgecolor='white',
+            linewidth=1.4 if matched else 0.9,
+            alpha=1.0 if matched else 0.55, zorder=3,
+        )
+
+    day_str = forecast_date.strftime('%B %d, %Y')
+    obs_day = df[df['date'] == day_str]
+    for _, row in obs_day.iterrows():
+        color = _map_prob_color(row.get('forecast_prob'))
+        ax.scatter(
+            row['Longitude'], row['Latitude'], s=190, marker='^',
+            facecolor=color, edgecolor='black', linewidth=1.3, zorder=4,
+        )
+
+    ax.set_xlabel('Longitude (°E)', fontsize=FIG_LABEL_SIZE)
+    ax.set_ylabel('Latitude (°N)', fontsize=FIG_LABEL_SIZE)
+    ax.tick_params(axis='both', labelsize=FIG_TICK_SIZE)
+
+    # Extent must cover stations AND that day's observations — an outlier
+    # report can fall well outside the station network's bounding box.
+    lons = [s['lon'] for s in sim_stations] + obs_day['Longitude'].tolist()
+    lats = [s['lat'] for s in sim_stations] + obs_day['Latitude'].tolist()
+    mean_lat = float(np.mean(lats)) if lats else 0.0
+    ax.set_aspect(1 / max(math.cos(math.radians(mean_lat)), 1e-6))
+
+    # Pad the data extent slightly, then fix the limits before fetching tiles
+    # so contextily's basemap request matches exactly what we plot.
+    pad_lon = (max(lons) - min(lons)) * 0.08 or 0.1
+    pad_lat = (max(lats) - min(lats)) * 0.08 or 0.1
+    xlim = (min(lons) - pad_lon, max(lons) + pad_lon)
+    ylim = (min(lats) - pad_lat, max(lats) + pad_lat)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+
+    try:
+        ctx.add_basemap(ax, crs='EPSG:4326', source=ctx.providers.Esri.WorldImagery,
+                         attribution_size=6, zorder=0)
+    except Exception as exc:  # noqa: BLE001 — tile fetch can fail offline; keep the scatter
+        print(f"  (basemap fetch failed, falling back to plain background: {exc})")
+        ax.grid(True, alpha=0.25, linestyle='--')
+
+    ax.autoscale(False)  # country polylines must not expand the fixed map extent
+    _draw_country_borders(ax, extent=(xlim[0], xlim[1], ylim[0], ylim[1]),
+                           avoid_points=list(zip(lons, lats)))
+
+    prob_handles = [
+        Line2D([0], [0], marker='o', linestyle='', markerfacecolor=color,
+               markeredgecolor='#333333', markersize=9, label=label)
+        for _, color, label in _MAP_PROB_COLORS
+    ] + [
+        Line2D([0], [0], marker='o', linestyle='', markerfacecolor=_MAP_PROB_NO_CLASSIFIER,
+               markeredgecolor='#333333', markersize=9, label='No classifier'),
+    ]
+    shape_handles = [
+        Line2D([0], [0], marker='o', linestyle='', markerfacecolor='white',
+               markeredgecolor='#333333', markersize=9, label='SNOWPACK station'),
+        Line2D([0], [0], marker='^', linestyle='', markerfacecolor='white',
+               markeredgecolor='black', markersize=9, label='Avalanche observation'),
+        Line2D([0], [0], marker='o', linestyle='', markerfacecolor=_MAP_PROB_NO_CLASSIFIER,
+               markeredgecolor='#333333', markersize=7, alpha=0.55,
+               label='Station, no matched observation'),
+    ]
+    # Legends sit outside the axes (never over the data) since real stations
+    # can fall anywhere, including the corners a legend would normally occupy.
+    leg1 = ax.legend(handles=prob_handles, title='Max probability in window',
+                      loc='upper left', bbox_to_anchor=(1.02, 1.0),
+                      fontsize=FIG_LEGEND_SIZE, title_fontsize=FIG_LEGEND_TITLE_SIZE,
+                      framealpha=0.9)
+    ax.add_artist(leg1)
+    ax.legend(handles=shape_handles, loc='upper left', bbox_to_anchor=(1.02, 0.45),
+              fontsize=FIG_LEGEND_SIZE, framealpha=0.9)
+
+    fig.savefig(str(output_path), dpi=200, bbox_inches='tight')
+    plt.close(fig)
 
 
 # ── terrain-trace validation map ──────────────────────────────────────────────
