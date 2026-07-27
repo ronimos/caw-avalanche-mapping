@@ -53,11 +53,11 @@ For this study we pulled SNOWPACK output at 30 virtual stations across the Darvo
 
 | Feature | Source | Physical role |
 |---|---|---|
-| HS | SNOWPACK | Total snow depth — size / valley-reach potential |
-| HN24 | NWP | 24-hour new snow — primary loading trigger |
-| TA_max | NWP | Daily max air temperature — wet vs dry mechanism |
-| Sn38_min | SNOWPACK | Whole-profile minimum stability index — weakest-layer strength |
-| depth_lower_wl | SNOWPACK | Weak-layer depth — proximity to ground / basal layer |
+| HS | SNOWPACK | Total snow depth: size / valley-reach potential |
+| HN24 | NWP | 24-hour new snow: primary loading trigger |
+| TA_max | NWP | Daily max air temperature: wet vs dry mechanism |
+| Sn38_min | SNOWPACK | Whole-profile minimum stability index: weakest-layer strength |
+| depth_lower_wl | SNOWPACK | Weak-layer depth: proximity to ground / basal layer |
 
 One caveat: we had no in-situ snowpack observations to validate the simulated stratigraphy. The *Sn38* index and the layer structure it rests on are simply model-derived proxies.
 
@@ -91,7 +91,7 @@ That hybrid step puts terrain knowledge where distance alone would fail. Two sta
 
 We aggregated sub-daily SNOWPACK output to one value per day. From the weather side we took daily maxima for total snow depth (HS), 24-hour new snow (HN24), and air temperature (TA_max). From the modeled profile we split each timestep into an upper zone, everything buried shallower than 40% of total depth, and a lower zone below. The upper zone is where storm slabs live, the lower zone is where persistent weak layers sit. Within each zone we took the minimum Sn38 stability index, plus the burial depth of the weakest layer in the lower zone.
 
-The 2024–2025 training set holds 35 positive days across the 13 stations with usable 2024–2025 SNOWPACK data. Anything larger would be modeling noise instead of signal. The five variables in Table 1 — HS, HN24, TA_max, Sn38_min, and depth_lower_wl — are physically distinct and do not track each other closely.
+The 2024–2025 training set holds 35 positive days across the 13 stations with usable 2024–2025 SNOWPACK data. Anything larger would be modeling noise instead of signal. The five variables in Table 1: HS, HN24, TA_max, Sn38_min, and depth_lower_wl are physically distinct and do not track each other closely.
 
 ### 3.2 Labeling Under Weak Supervision
 
@@ -114,7 +114,7 @@ This also gives us a confidence estimate on every prediction at no extra cost, w
 We tested the model three ways:
 
 1. **Rolling per-station test.** For each station, we put its observed events in time order and asked whether the model warned before each one, using only what it knew beforehand. Each test trains on everything that came earlier at that station, pulling from either season, and tests on the next event. Training only looks backward, so no future information leaks in. This measures how much accumulated local history helps. It mixes seasons on purpose, so it is not a test of a brand-new year. We counted an event as detected if the highest predicted probability in the three days up to and including the event reached 50%.
-2. **Cross-season holdout.** We trained on 2024–2025 only and evaluated entirely on 2025–2026, so nothing from the test season ever reached training. This is the honest test of whether the model holds up in a year it has never seen. We report two scores. AUC-ROC measures how well the model ranks dangerous days above quiet ones, where 1.0 is perfect and 0.5 is a coin flip. Average precision is the more useful of the two when real events are rare, and they are: about 2% of station-days carry a positive label in the 2025–2026 evaluation season, versus 0.7% in 2024–2025 training. That gap is season coverage, not a change in reporting — avalanches were recorded at all 30 matched stations in 2025–2026 but only 15 of 30 in 2024–2025, so more of the pooled 2025–2026 days sit near a reported event (Saito & Rehmsmeier, 2015).
+2. **Cross-season holdout.** We trained on 2024–2025 only and evaluated entirely on 2025–2026, so nothing from the test season ever reached training. This is the honest test of whether the model holds up in a year it has never seen. We report two scores. AUC-ROC measures how well the model ranks dangerous days above quiet ones, where 1.0 is perfect and 0.5 is a coin flip. Average precision is the more useful of the two when real events are rare, and they are: about 2% of station-days carry a positive label in the 2025–2026 evaluation season, versus 0.7% in 2024–2025 training. That gap is season coverage, not a change in reporting; avalanches were recorded at all 30 matched stations in 2025–2026 but only 15 of 30 in 2024–2025, so more of the pooled 2025–2026 days sit near a reported event (Saito & Rehmsmeier, 2015).
 3. **Event-level scoring.** For each test event, we took the model's highest probability in the three days before it as the warning score, then compared that against equal-length windows on quiet days at the same stations. This asks the question a forecaster cares about, whether a timely warning went out, rather than whether every single day got labeled correctly.
 
 ## 4. Results
@@ -139,7 +139,7 @@ The pattern inside that failure is the most useful thing we found (Table 2 and F
 
 ### 4.2 Cross-Season Performance
 
-The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715 — where 1.0 is perfect and 0.5 is a coin flip — and its warnings landed about seven times more precisely than random guessing.
+The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715, where 1.0 is perfect and 0.5 is a coin flip, and its warnings landed about seven times more precisely than random guessing.
 
 We also tried simpler setups: one model per station, one model for the whole region, and a blend of the two. The shared, hierarchical model beat all of them. A station with few logged events borrows the pattern from better-observed stations nearby while still keeping whatever local history it has. The full model comparison and statistical detail are available in the supplementary technical report ([Sheleg et al., 2026](https://github.com/ronimos/caw-avalanche-mapping/blob/main/docs/methods_and_results.md)).
 

@@ -103,7 +103,7 @@ This paper presents the system architecture and a pilot deployment in Afghanista
 \subsection{NWP Forcing and SNOWPACK Simulations}
 We implemented the Weather Research and Forecasting model (WRF) \parencite{SkamarockKlemp2008} over Central Asia in 2022 to produce winter weather forecasts. Initial and lateral boundary conditions come from the US National Weather Service Global Forecast System (GFS). We run a nested grid, a 12-km outer domain with a 4-km inner nest, and put out 7-day forecasts twice a day. Post-processing turns that into standard parameter imagery and point forecasts on a regional website. The first winter told us the forecasts were worth building on.
 The following season we added SNOWPACK \parencite{Lehning2002,Morin2020}, following the approach the Colorado Avalanche Information Center developed \parencite{SnookEtAl2022,Snook2016}. WRF writes meteorological output straight into SNOWPACK, which simulates layer-by-layer snowpack evolution at each grid point. The system builds profiles at every 4-km grid point above 3,500 m inside the forecast domain, updates them daily, and serves them on the same website, with full seasonal profiles available on demand.
-For this study we pulled SNOWPACK output at 30 virtual stations across the Darvoz district of Tajikistan and northwest Pakistan — the stations that turned out to be nearest to at least one avalanche report. Each station carries a specific aspect (N, E, S, W, or flat) and elevation, so the network represents snowpack evolution tuned to slope exposure rather than one regional average. We ran two consecutive winters: 2024–2025 for training, 2025–2026 for evaluation. Sub-daily .smet files gave us the meteorological time series, and .pro files gave us per-layer stratigraphy at each timestep. Table \ref{tab:table_1} lists the five variables the model uses. Figure \ref{fig:study_area_map} shows the station network and a representative forecast window from 2025–2026.
+For this study we pulled SNOWPACK output at 30 virtual stations across the Darvoz district of Tajikistan and northwest Pakistan — the stations that turned out to be nearest to at least one avalanche report. Each station carries a specific aspect (N, E, S, W, or flat) and elevation, so the network represents snowpack evolution tuned to slope exposure rather than one regional average. We ran two consecutive winters: 2024–2025 for training, 2025–2026 for evaluation. Sub-daily {\texttt{.smet}} files gave us the meteorological time series, and {\texttt{.pro}} files gave us per-layer stratigraphy at each timestep. Table \ref{tab:table_1} lists the five variables the model uses. Figure \ref{fig:study_area_map} shows the station network and a representative forecast window from 2025–2026.
 
 \begin{table*}[t]
   \centering
@@ -113,11 +113,11 @@ For this study we pulled SNOWPACK output at 30 virtual stations across the Darvo
     \hline
     \textbf{\textit{Feature}} & \textbf{\textit{Source}} & \textbf{\textit{Physical role}} \\
     \hline
-    $\HS$ & SNOWPACK & Total snow depth — size / valley-reach potential \\
-    $\HNtf$ & NWP & 24-hour new snow — primary loading trigger \\
-    $\TAmax$ & NWP & Daily max air temperature — wet vs dry mechanism \\
-    $\Snmin$ & SNOWPACK & Whole-profile minimum stability index — weakest-layer strength \\
-    \dlwl & SNOWPACK & Weak-layer depth — proximity to ground / basal layer \\
+    $\HS$ & SNOWPACK & Total snow depth: size / valley-reach potential \\
+    $\HNtf$ & NWP & 24-hour new snow: primary loading trigger \\
+    $\TAmax$ & NWP & Daily max air temperature: wet vs dry mechanism \\
+    $\Snmin$ & SNOWPACK & Whole-profile minimum stability index: weakest-layer strength \\
+    \dlwl & SNOWPACK & Weak-layer depth: proximity to ground / basal layer \\
     \hline
   \end{tabular}
 \end{table*}
@@ -159,7 +159,7 @@ That hybrid step puts terrain knowledge where distance alone would fail. Two sta
 \section{METHODS}
 \subsection{Feature Engineering}
 We aggregated sub-daily SNOWPACK output to one value per day. From the weather side we took daily maxima for total snow depth ($\HS$), 24-hour new snow ($\HNtf$), and air temperature ($\TAmax$). From the modeled profile we split each timestep into an upper zone, everything buried shallower than 40\% of total depth, and a lower zone below. The upper zone is where storm slabs live, the lower zone is where persistent weak layers sit. Within each zone we took the minimum ${Sn38}$ stability index, plus the burial depth of the weakest layer in the lower zone.
-The 2024–2025 training set holds 35 positive days across the 13 stations with usable 2024–2025 SNOWPACK data. Anything larger would be modeling noise instead of signal. The five variables in Table \ref{tab:table_1} — $\HS$, $\HNtf$, $\TAmax$, $\Snmin$, and \dlwl — are physically distinct and do not track each other closely.
+The 2024–2025 training set holds 35 positive days across the 13 stations with usable 2024–2025 SNOWPACK data. Anything larger would be modeling noise instead of signal. The five variables in Table \ref{tab:table_1}: $\HS$, $\HNtf$, $\TAmax$, $\Snmin$, and \dlwl\ are physically distinct and do not track each other closely.
 
 \subsection{Labeling Under Weak Supervision}
 An event day gets labeled positive, and so does the day before it, accounting for the one-day reporting lag inherent in social media and field log sources. Every other day is negative. That leaves roughly 0.7\% of days positive in the 2024–2025 training set, an imbalance worth remembering when reading the skill scores.
@@ -175,7 +175,7 @@ This also gives us a confidence estimate on every prediction at no extra cost, w
 We tested the model three ways:
 \begin{enumerate}
   \item \textbf{Rolling per-station test.} For each station, we put its observed events in time order and asked whether the model warned before each one, using only what it knew beforehand. Each test trains on everything that came earlier at that station, pulling from either season, and tests on the next event. Training only looks backward, so no future information leaks in. This measures how much accumulated local history helps. It mixes seasons on purpose, so it is not a test of a brand-new year. We counted an event as detected if the highest predicted probability in the three days up to and including the event reached 50\%.
-  \item \textbf{Cross-season holdout.} We trained on 2024–2025 only and evaluated entirely on 2025–2026, so nothing from the test season ever reached training. This is the honest test of whether the model holds up in a year it has never seen. We report two scores. AUC-ROC measures how well the model ranks dangerous days above quiet ones, where 1.0 is perfect and 0.5 is a coin flip. Average precision is the more useful of the two when real events are rare, and they are: about 2\% of station-days carry a positive label in the 2025–2026 evaluation season, versus 0.7\% in 2024–2025 training. That gap is season coverage, not a change in reporting — avalanches were recorded at all 30 matched stations in 2025–2026 but only 15 of 30 in 2024–2025, so more of the pooled 2025–2026 days sit near a reported event \parencite{SaitoRehmsmeier2015}.
+  \item \textbf{Cross-season holdout.} We trained on 2024–2025 only and evaluated entirely on 2025–2026, so nothing from the test season ever reached training. This is the honest test of whether the model holds up in a year it has never seen. We report two scores. AUC-ROC measures how well the model ranks dangerous days above quiet ones, where 1.0 is perfect and 0.5 is a coin flip. Average precision is the more useful of the two when real events are rare, and they are: about 2\% of station-days carry a positive label in the 2025–2026 evaluation season, versus 0.7\% in 2024–2025 training. That gap is season coverage, not a change in reporting; avalanches were recorded at all 30 matched stations in 2025–2026 but only 15 of 30 in 2024–2025, so more of the pooled 2025–2026 days sit near a reported event \parencite{SaitoRehmsmeier2015}.
   \item \textbf{Event-level scoring.} For each test event, we took the model's highest probability in the three days before it as the warning score, then compared that against equal-length windows on quiet days at the same stations. This asks the question a forecaster cares about, whether a timely warning went out, rather than whether every single day got labeled correctly.
 \end{enumerate}
 
@@ -210,7 +210,7 @@ The pattern inside that failure is the most useful thing we found (Table \ref{ta
 \end{table*}
 
 \subsection{Cross-Season Performance}
-The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715 — where 1.0 is perfect and 0.5 is a coin flip — and its warnings landed about seven times more precisely than random guessing.
+The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715, where 1.0 is perfect and 0.5 is a coin flip, and its warnings landed about seven times more precisely than random guessing.
 We also tried simpler setups: one model per station, one model for the whole region, and a blend of the two. The shared, hierarchical model beat all of them. A station with few logged events borrows the pattern from better-observed stations nearby while still keeping whatever local history it has. The full model comparison and statistical detail are available in the supplementary technical report \parencite{ShelegEtAl2026}.
 
 \subsection{What the Model Learned}
