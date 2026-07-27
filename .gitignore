@@ -29,3 +29,21 @@ src/backup/
 
 # Binary documents
 *.pdf
+
+# LaTeX build artifacts (docs/paper source is tracked, build output is not)
+docs/paper/*.aux
+docs/paper/*.bbl
+docs/paper/*.bbl-SAVE-ERROR
+docs/paper/*.bcf
+docs/paper/*.bcf-SAVE-ERROR
+docs/paper/*.blg
+docs/paper/*.fdb_latexmk
+docs/paper/*.fls
+docs/paper/*.log
+docs/paper/*.run.xml
+docs/paper/*.synctex.gz
+docs/paper/*.toc
+docs/paper/*-luamml-mathml.html
+
+# macOS Finder metadata
+.DS_Store
