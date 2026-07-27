@@ -9,11 +9,11 @@
 
 ### 2.1 NWP Forcing and SNOWPACK Simulations
 
-In 2022 we implemented the open-source Weather Research and Forecasting (WRF) model (Skamarock and Klemp, 2008) to provide weather forecasts over Central Asia. We derive WRF initial and lateral boundary conditions from the US National Weather Service Global Forecast System (GFS), and configure the model with a nested grid: a 12-km outer domain and a 4-km inner nest. WRF produces 7-day forecasts updated twice daily; post-processing generates standard meteorological parameter imagery and point forecasts available on a regional website.
+In 2022 we implemented the open-source Weather Research and Forecasting (WRF) model (Skamarock and Klemp, 2008) to provide weather forecasts over Central Asia. We derive WRF initial and forecast lateral boundary conditions from the US National Weather Service Global Forecast System (GFS), and configure the model with a nested grid: a 12-km outer domain and a 4-km inner nest. WRF produces 7-day forecasts updated twice daily; post-processing generates standard meteorological parameter imagery and point forecasts available on a regional website. WRF forecasts proved valuable during the first winter season.
 
-Following the approach developed at the Colorado Avalanche Information Center (Snook et al., 2022; Snook, 2016), we implemented the SLF SNOWPACK model (Lehning et al., 2002; Morin et al., 2020) for the 2024–2025 season. We feed WRF 4-km output directly into SNOWPACK as meteorological forcing, which simulates per-layer snowpack evolution at each grid point. The system generates snowpack profiles at all WRF 4-km grid points above 3,500 m within the defined forecast region, updates them daily, and makes them accessible through the same regional website.
+Following the approach developed at the Colorado Avalanche Information Center (Snook et al., 2022; Snook, 2016), we implemented the SLF SNOWPACK model (Lehning et al., 2002; Morin et al., 2020) for the following season. We configure WRF to output meteorological forecasts as direct input into SNOWPACK, which simulates per-layer snowpack evolution at each grid point. The system generates snowpack profiles at all WRF 4-km grid points above 3,500 m within the defined forecast region, updates them daily, and makes them accessible through the regional website, with the ability to display full seasonal profiles on demand.
 
-For this study, we extracted SNOWPACK output at a network of 30 virtual stations across the Darvoz region of Tajikistan and adjacent Pakistan, spanning elevations from approximately 2,100 to 4,900 m. We assigned each station a specific aspect (N, E, S, W, or flat) and elevation, producing a spatially distributed representation of snowpack evolution tuned to slope exposure. We ran simulations for two consecutive winter seasons: 2024–2025 (training) and 2025–2026 (evaluation). Sub-daily `.smet` files provided meteorological time series, and `.pro` files provided per-layer snowpack stratigraphy at each timestep. Table 1 summarizes the outputs we used.
+For this study, we extracted SNOWPACK output at a network of 30 virtual stations across the Darvoz region of Tajikistan and adjacent Pakistan, spanning elevations from approximately 3,555 to 4,478 m. We assigned each station a specific aspect (N, E, S, W, or flat) and elevation, producing a spatially distributed representation of snowpack evolution tuned to slope exposure. We ran simulations for two consecutive winter seasons: 2024–2025 (training) and 2025–2026 (evaluation). Sub-daily `.smet` files provided meteorological time series, and `.pro` files provided per-layer snowpack stratigraphy at each timestep. Table 1 summarizes the outputs we used.
 
 **Table 1. Candidate SNOWPACK simulation outputs.** *(The model uses a reduced subset — see §3.1 and Table 2.)*
 
@@ -64,7 +64,7 @@ We aggregated sub-daily SNOWPACK output to daily resolution for model training a
 
 ### 3.2 Labeling Under Weak Supervision
 
-We labeled avalanche event days positive (y = 1) for both the reported date and the preceding day, accounting for the one-day reporting lag inherent in social media and field log sources. We labeled all other days negative (y = 0). This produced a severely imbalanced dataset with a positive day rate of approximately 1.1% in the 2024–2025 training corpus. The frequentist logistic models address this imbalance with balanced class weights, which upweight rare positive samples; the hierarchical Bayesian model instead keeps the natural base rate and centers its intercept prior on the empirical log-odds, yielding calibrated (low-magnitude) probabilities evaluated with threshold-free metrics.
+We labeled avalanche event days positive (y = 1) for both the reported date and the preceding day, accounting for the one-day reporting lag inherent in social media and field log sources. We labeled all other days negative (y = 0). This produced a severely imbalanced dataset with a positive day rate of approximately 0.7% in the 2024–2025 training corpus. The frequentist logistic models address this imbalance with balanced class weights, which upweight rare positive samples; the hierarchical Bayesian model instead keeps the natural base rate and centers its intercept prior on the empirical log-odds, yielding calibrated (low-magnitude) probabilities evaluated with threshold-free metrics.
 
 Where zone-derived features contained no non-NaN values on positive training days — most commonly for stations with thin or absent early-season snowpacks — the model fell back to a meteorological-only feature set (HS, HN24, TA_max), sacrificing snowpack structural information but preserving trainability.
 
@@ -133,7 +133,11 @@ We applied temporal LOO cross-validation to the 16 stations with two or more tot
 
 The strongest stations show genuine discrimination, not blanket over-prediction: 160942_res assigns probability 1.00 to its event window, and 272401_res 0.92, against a median non-event probability of 0.15 across all folds. The five zero-detection stations are all single-fold cases where the model trains on exactly one prior event — too little to anchor a reliable decision boundary.
 
-**Performance as a function of training data size.** Aggregating LOO folds by the number of prior training events at the time of each test (Figure X) shows a strong, consistent positive trend in both mean event window probability and detection rate (Table 4).
+**Performance as a function of training data size.** Aggregating LOO folds by the number of prior training events at the time of each test (Figure 1) shows a strong, consistent positive trend in both mean event window probability and detection rate (Table 4).
+
+![Scatter plot of per-station event-window probability against number of prior training events. Detected events are green circles and missed events are red X marks; a black dashed mean line rises from 0.48 at one prior event to 0.78 at two and 0.72 at three, against a blue dotted median non-event probability of 0.15.](./figures/loo_performance_by_events.png)
+
+**Figure 1.** Learning curve: per-fold event-window probability and mean detection rate as a function of the number of prior training events at a station.
 
 **Table 4. LOO detection performance by number of training events.**
 
@@ -153,7 +157,7 @@ We evaluated the four models on all 37 test-season events using the event-level 
 
 | Model | AUC-ROC | Average Precision | vs. No-Skill AP |
 |---|---|---|---|
-| **Hierarchical (Bayesian, random intercepts)** | **0.715** | **0.241** | **7.0×** |
+| **Hierarchical (Bayesian, random intercepts)** | **0.715** | **0.240** | **7.0×** |
 | Blended (weighted) | 0.687 | 0.218 | 6.4× |
 | Regional (pooled) | 0.687 | 0.216 | 6.4× |
 | Per-station + fallback | 0.665 | 0.165 | 4.9× |
@@ -179,6 +183,28 @@ The regional model's standardized coefficients (Table 6) summarize the feature�
 
 Total snow depth (HS) emerges as the dominant predictor (+1.33), consistent with the paper's framing that valley-floor avalanches require a deep enough snowpack to run the full distance from start zone to valley floor — the size signal Ron emphasized in matching observations to stations. The negative `depth_lower_wl` coefficient (−0.92) is physically coherent: a weak layer buried closer to the surface is more easily triggered and more likely to support a propagating slab. New-snow loading (HN24, +0.26) and warming (TA_max, +0.27) contribute as expected from loading and temperature-weakening mechanisms. The whole-profile stability index (sn38_min) carries little weight at the pooled level, suggesting that the simulated Sn38 index adds limited cross-station signal beyond the depth and loading variables — though it remains informative at individual well-sampled stations, where per-station coefficients vary widely.
 
+**Interpreting TA_max: rain-on-snow vs. general warming.** TA_max is the station's daily maximum air temperature, with no precipitation-phase or threshold logic behind it — a positive coefficient only shows that less-cold days raise modeled risk, not that avalanches release during rain. Two checks refine that reading.
+
+First, precipitation phase in this dataset is a station-elevation artifact, not a measured fact. Across every positive-labeled station-day in both seasons (108 rows), simulated rain_sum is essentially zero (mean 0.0003 m, max 0.037 m) — SNOWPACK/WRF classifies virtually all winter precipitation at these station elevations (3,500–4,900 m) as snow, never rain. Restricting to the actual detection-scoring window ([event − 3 d, event], per §3.4) rather than the 2-day label window, 7 of 55 events (2024–2025 and 2025–2026 combined) have any day above freezing at the station, and every one of those 7 also has precipitation somewhere in the window — no event shows a warm day with no loading, so warming and loading are not competing mechanisms here; they co-occur.
+
+Second, station temperature is a poor proxy for release-zone temperature. Virtual stations were sited for simulation quality, not to match every path's crown elevation, and the offset is large and not one-directional: reverse-watershed path tracing (§Path Terrain, `docs/path_terrain_plan.md`) finds a mean start-zone/station elevation difference of −161 m across the matched network but a standard deviation of 924 m (range −1,370 to +1,601 m) — some start zones sit well below their matched station, others above it. We traced start-zone elevation specifically for the 7 above-freezing events and applied a standard 6.5 °C/km lapse rate to estimate temperature at the actual release point rather than the station.
+
+**Table 6b. Lapse-corrected temperature at the traced start zone for the 7 station-flagged warm events.**
+
+| Station | Date | TA @ station | Δelev (start zone − station) | TA @ start zone (est.) |
+|---|---|---|---|---|
+| 176522_res | 2026-03-12 | +2.1°C | −55 m | +2.5°C |
+| 176204_res | 2026-03-12 | +0.3°C | +194 m | **−1.0°C** |
+| 176204_res | 2026-03-05 | +1.5°C | −357 m | +3.8°C |
+| 183642_res | 2026-03-05 | +0.9°C | +30 m | +0.7°C |
+| 187363_res | 2026-03-05 | +1.4°C | −597 m | +5.3°C |
+| 224102_res | 2026-03-05 | +0.8°C | −888 m | +6.6°C |
+| 142403_res | 2025-12-15 | +4.2°C | +372 m | +1.8°C |
+
+Five of the seven remain confidently above freezing once corrected to the actual start zone — two (`187363_res`, `224102_res`) more strongly than the station reading suggested, since their start zones sit 600–900 m lower. One (`176204_res`, 2026-03-12) flips below freezing: its start zone is 194 m *higher* than the station, so the station-level "warm day" was a false positive for that event. One (`183642_res`) is a marginal +0.7°C, a toss-up either way.
+
+**Conclusion.** The evidence supports "warm, likely rain-influenced storms" rather than a blanket rain-on-snow claim: the mechanism holds for most of the flagged events once corrected to actual release-zone elevation, but a naive station-level `TA_max > 0` threshold alone is not reliable on its own — it produced one clear false positive and one toss-up in this small sample. This is a first-order physical estimate (a fixed lapse rate, not measured precipitation phase at the release point) and should be read as supporting evidence, not confirmation.
+
 ### 4.4 Per-Station Uncertainty from the Hierarchical Model
 
 Beyond its competitive accuracy, the hierarchical model's chief practical advantage is that it reports *how confident it is* at each station. Because every station's coefficients are drawn from the posterior, the spread of predicted probabilities across posterior draws is a direct, model-derived uncertainty estimate. We summarize each station's forecast-window prediction as a posterior mean probability and its standard deviation (Table 7 reports representative extremes).
@@ -188,8 +214,8 @@ Beyond its competitive accuracy, the hierarchical model's chief practical advant
 | Station | In training | Mean prob | Posterior std | Reading |
 |---|---|---|---|---|
 | 142301_res | no | 0.94 | 0.23 | High risk, but low confidence (no local data) |
-| 142303_res | no | 0.93 | 0.24 | High risk, low confidence |
-| 224103_res | no | 0.009 | 0.004 | Confidently low risk |
+| 142303_res | no | 0.92 | 0.24 | High risk, low confidence |
+| 224103_res | no | 0.010 | 0.004 | Confidently low risk |
 | 224102_res | yes | 0.013 | 0.007 | Low risk, well constrained |
 | 187363_res | yes | 0.073 | 0.026 | Low risk, well constrained |
 
@@ -197,7 +223,11 @@ The contrast is the key result. For stations with no local training data (e.g. 1
 
 ### 4.5 Operational Threshold Analysis
 
-For the frequentist per-station models, we applied the recall-maximizing threshold to the 2025–2026 season and counted individual non-event days where the model exceeded that threshold (Figure Z; Table 8). The 149-day season provides 131–140 non-event days per station after removing ±4-day grace zones around observed events.
+For the frequentist per-station models, we applied the recall-maximizing threshold to the 2025–2026 season and counted individual non-event days where the model exceeded that threshold (Figure 2; Table 8). The 149-day season provides 131–140 non-event days per station after removing ±4-day grace zones around observed events.
+
+![Two-panel operational threshold analysis for the 2025–2026 season. Left: horizontal bar chart of false alarm rate at each station's recall-maximizing threshold, colored green (ready, ≤10%), orange (marginal, 10–25%), or red (not ready, >25%), with a dashed line at the 10% operational threshold. Right: scatter plot of threshold versus false alarm rate, bubble size proportional to training folds, same three-color scheme.](./figures/operational_thresholds.png)
+
+**Figure 2.** Operational threshold analysis: false alarm rate at each station's recall-maximizing threshold, 2025–2026 season.
 
 **Table 8. Operational threshold analysis — false alarm rate at recall-maximizing threshold.**
 *(Reduced model. Season: 2025–2026. Non-event days exclude ±4-day grace zones around observed events.)*
@@ -228,7 +258,7 @@ The operational analysis quantifies the data investment each station needs. At 1
 
 ### 4.6 Summary
 
-Reducing the feature set to five physically-distinct variables and applying proper regularization transformed the framework's measured skill: regional event-level average precision rose roughly fivefold (0.045 → 0.216) and the per-station learning curve steepened, with LOO detection rate climbing 56% → 86% → 100% across one, two, and three training events. The hierarchical Bayesian model is the strongest single configuration (event-level AP = 0.241, 7.0× the no-skill baseline; AUC-ROC 0.715), unifies the per-station and regional approaches in one principled framework with the fewest parameters the data can support (random intercepts, shared slopes), and — uniquely — reports per-station prediction uncertainty that an operational display can use directly. Learned feature weights are stable and physically coherent, led by total snow depth (the valley-reach signal) and shallow weak-layer burial.
+Reducing the feature set to five physically-distinct variables and applying proper regularization transformed the framework's measured skill: regional event-level average precision rose roughly fivefold (0.045 → 0.216) and the per-station learning curve steepened, with LOO detection rate climbing 56% → 86% → 100% across one, two, and three training events. The hierarchical Bayesian model is the strongest single configuration (event-level AP = 0.240, 7.0× the no-skill baseline; AUC-ROC 0.715), unifies the per-station and regional approaches in one principled framework with the fewest parameters the data can support (random intercepts, shared slopes), and — uniquely — reports per-station prediction uncertainty that an operational display can use directly. Learned feature weights are stable and physically coherent, led by total snow depth (the valley-reach signal) and shallow weak-layer burial.
 
 Four stations now meet a ≤10% false-alarm operational criterion, up from two, and the "always-on" overfitting artifact that previously affected several stations is largely eliminated. The results confirm the framework as a decision-support tool whose performance scales steeply and reliably with observation density: moving from one to three events per station roughly doubles per-station detection, a gain achievable within a single additional observation season and the clearest path to operational improvement.
 
