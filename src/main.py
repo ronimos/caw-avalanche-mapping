@@ -12,10 +12,13 @@ from sklearn.metrics import (average_precision_score, f1_score,
 
 from classifier import (aggregate_predictions, blend_probabilities,
                         evaluate_event_level, evaluate_regional, evaluate_station,
-                        predict_proba_series, train_regional, train_station)
+                        plot_feature_importance, predict_proba_series,
+                        train_regional, train_station)
 from features import build_daily_features
 from snowpack_io import extract_pro_coordinates, find_nearest_pro, parse_snow_data
-from visualization import create_avalanche_map, plot_interactive_stability
+from visualization import (FIG_ANNOT_SIZE, FIG_LABEL_SIZE, FIG_LEGEND_SIZE,
+                           FIG_TICK_SIZE, create_avalanche_map,
+                           plot_interactive_stability, plot_static_map)
 
 # ── season config ─────────────────────────────────────────────────────────────
 # SEASON:       current / test season — used for prediction, plots, and the map.
@@ -32,6 +35,10 @@ from visualization import create_avalanche_map, plot_interactive_stability
 
 SEASON       = "2025-2026"
 TRAIN_SEASON = "2024-2025"
+
+# Best-performing station; also gets a static PNG export of its stability
+# chart for the case-study figure in the paper (docs/paper/figures/).
+CASE_STUDY_STATION = "160942_res"
 
 # Confidence tiers from §4.5 operational threshold analysis (FA rate at
 # recall-maximising threshold).  Used both in the map overlay and plot titles.
@@ -76,12 +83,14 @@ def _parse_args() -> argparse.Namespace:
 
 
 PRE_EVENT_WINDOW = 3  # days before event counted as a "warning window"
+LOO_THRESHOLD    = 0.5  # probability above which a day counts as a warning
 
 
 def _run_loo_folds(
     station_id: str,
     sims_root: Path,
     all_events: list[tuple[pd.Timestamp, str]],
+    daily_sink: list[dict] | None = None,
 ) -> list[dict]:
     """
     Temporal leave-one-out CV for one station.
@@ -91,7 +100,9 @@ def _run_loo_folds(
     belongs to, so the model always trains on data it could have seen in
     real-time.
 
-    Returns a list of per-fold result dicts.
+    Returns a list of per-fold result dicts.  If `daily_sink` is given, one
+    record per fold-day is appended to it (labelled event_window / grace /
+    non_event) so threshold sweeps can be replayed without refitting.
     """
     results: list[dict] = []
     window_td = pd.Timedelta(days=PRE_EVENT_WINDOW)
@@ -139,6 +150,9 @@ def _run_loo_folds(
             'trained':          False,
             'event_prob':       float('nan'),
             'non_event_median': float('nan'),
+            'n_non_event_days': 0,
+            'false_alarm_days': 0,
+            'false_alarms':     0,
         }
 
         fitted = train_station(train_daily, train_dates, verbose=False)
@@ -158,9 +172,99 @@ def _run_loo_folds(
             non_grace = prob[~prob.index.floor('D').isin(grace)].dropna()
             fold['non_event_median'] = float(non_grace.median()) if not non_grace.empty else float('nan')
 
+            # False alarms on non-event days.  Two counts: raw days above the
+            # threshold, and alarm episodes (runs of consecutive warning days
+            # collapsed to one) — a forecaster reacts to the episode, not to
+            # each day of a multi-day alarm.
+            daily_ne = non_grace.groupby(non_grace.index.floor('D')).max().sort_index()
+            fold['n_non_event_days'] = int(len(daily_ne))
+            if not daily_ne.empty:
+                warned = daily_ne >= LOO_THRESHOLD
+                fold['false_alarm_days'] = int(warned.sum())
+                # New episode where a warning day follows a day that was not a
+                # consecutive warning day.
+                prev_day_warned = warned.shift(1, fill_value=False) & (
+                    daily_ne.index.to_series().diff().eq(pd.Timedelta(days=1)).fillna(False).to_numpy()
+                )
+                fold['false_alarms'] = int((warned & ~prev_day_warned).sum())
+
+            if daily_sink is not None:
+                daily = prob.dropna()
+                daily = daily.groupby(daily.index.floor('D')).max().sort_index()
+                for day, p in daily.items():
+                    kind = ('event_window' if w_start <= day <= w_end
+                            else 'grace' if day in grace else 'non_event')
+                    daily_sink.append({
+                        'station_id':     station_id,
+                        'n_train_events': len(train_dates),
+                        'test_date':      test_date.date(),
+                        'day':            day.date(),
+                        'prob':           float(p),
+                        'kind':           kind,
+                    })
+
         results.append(fold)
 
     return results
+
+
+def _count_alarm_episodes(warned: pd.Series, days: pd.Series) -> int:
+    """Runs of consecutive warned days, counted once each (calendar gaps split runs)."""
+    m = warned.to_numpy()
+    consecutive = np.r_[False, (days.diff() == pd.Timedelta(days=1)).to_numpy()[1:]]
+    prev_warned = np.r_[False, m[:-1]] & consecutive
+    return int((m & ~prev_warned).sum())
+
+
+def _print_threshold_sweep(
+    daily: pd.DataFrame,
+    thresholds: tuple[float, ...] = (0.5, 0.7, 0.8, 0.9, 0.95),
+) -> None:
+    """
+    Detection rate / precision / F1 by number of training events at several
+    absolute probability thresholds, plus a per-fold background percentile.
+
+    A fold is detected when any day in its event window clears the threshold;
+    a false positive is one run of consecutive non-event days above it.
+    """
+    daily = daily.copy()
+    daily['day'] = pd.to_datetime(daily['day'])
+
+    def report(label: str, thr_of_fold) -> None:
+        print(f"\n  Threshold: {label}")
+        print(f"  {'n_train':>8}  {'folds':>6}  {'detection_rate':>14}  "
+              f"{'false_alarms':>13}  {'fa_day_rate':>12}  "
+              f"{'precision':>10}  {'f1':>6}")
+        for n, grp_n in daily.groupby('n_train_events'):
+            tp = n_folds = fp = fa_days = ne_days = 0
+            for _, fold in grp_n.groupby(['station_id', 'test_date']):
+                fold = fold.sort_values('day')
+                window = fold[fold['kind'] == 'event_window']
+                if window.empty:
+                    continue
+                thr = thr_of_fold(fold)
+                n_folds += 1
+                tp += int(window['prob'].max() >= thr)
+                non_event = fold[fold['kind'] == 'non_event']
+                warned = non_event['prob'] >= thr
+                fa_days += int(warned.sum())
+                ne_days += len(non_event)
+                fp += _count_alarm_episodes(warned, non_event['day'])
+            if not n_folds:
+                continue
+            recall    = tp / n_folds
+            precision = tp / (tp + fp) if (tp + fp) else float('nan')
+            f1 = (2 * precision * recall / (precision + recall)
+                  if precision and recall and not pd.isna(precision) else 0.0)
+            print(f"  {n:>8}  {n_folds:>6}  {recall:>14.1%}  {fp:>13}  "
+                  f"{fa_days/ne_days if ne_days else float('nan'):>12.1%}  "
+                  f"{precision:>10.3f}  {f1:>6.3f}")
+
+    print("\n  LOO threshold sweep:")
+    for t in thresholds:
+        report(f"absolute {t}", lambda _fold, t=t: t)
+    report("p95 of each fold's non-event background",
+           lambda fold: fold.loc[fold['kind'] == 'non_event', 'prob'].quantile(0.95))
 
 
 def _load_observations(obs_dir: Path) -> pd.DataFrame:
@@ -493,6 +597,10 @@ def main() -> None:
         if regional_fitted is not None:
             reg_model, reg_scaler = regional_fitted
 
+            fi_path = out_dir / "feature_importance.png"
+            plot_feature_importance(reg_model, reg_scaler, fi_path)
+            print(f"  → saved {fi_path.name}")
+
             # All 2025-26 event dates per station (used by regional + blended)
             station_2526_dates = _station_event_dates(
                 df_all, df_all['source_season'] == SEASON)
@@ -643,6 +751,9 @@ def main() -> None:
 
             pr_curves: list[tuple[str, np.ndarray, np.ndarray, float]] = []
             n_events_total = n_pos_windows = n_neg_windows = 0
+            # One row per event-level window, tagged with its station, so AUC/AP
+            # confidence intervals can be bootstrapped without refitting.
+            event_rows: list[dict] = []
 
             pr_model_list = [
                 ("Regional",               regional_prob_dict),
@@ -672,6 +783,25 @@ def main() -> None:
                 pr_curves.append((label, prec, rec, ap))
                 print(f"  {label:30s}  AP={ap:.3f}  AUC-ROC={auc_roc:.3f}  "
                       f"(+windows={int(yt.sum())}  -windows={int((yt==0).sum())})")
+
+                # evaluate_event_level treats stations independently, so calling
+                # it one station at a time reproduces the pooled arrays exactly
+                # while recording which station each window came from.
+                for sid, p in prob_dict.items():
+                    yt_s, ys_s = evaluate_event_level(
+                        {sid: p}, station_2526_dates, PRE_EVENT_WINDOW
+                    )
+                    event_rows.extend(
+                        {'model': label, 'station_id': sid,
+                         'y_true': int(t), 'y_score': float(s)}
+                        for t, s in zip(yt_s, ys_s)
+                    )
+
+            if event_rows:
+                ev_df = pd.DataFrame(event_rows)
+                ev_df.to_csv(out_dir / "evaluation_event_level.csv", index=False)
+                print(f"  → saved evaluation_event_level.csv "
+                      f"({len(ev_df)} model-windows)")
 
             if pr_curves:
                 prevalence = n_pos_windows / (n_pos_windows + n_neg_windows) \
@@ -720,12 +850,13 @@ def main() -> None:
         station_all_events[sid].sort(key=lambda x: x[0])
 
     loo_rows: list[dict] = []
+    loo_daily: list[dict] = []
     for pro_file in sorted(unique_pro_files):
         sid = pro_file.stem
         evs = station_all_events.get(sid, [])
         if len(evs) < 2:
             continue
-        folds = _run_loo_folds(sid, sims_root, evs)
+        folds = _run_loo_folds(sid, sims_root, evs, daily_sink=loo_daily)
         loo_rows.extend(folds)
         n_trained = sum(1 for f in folds if f['trained'])
         print(f"  {sid}: {len(evs)} events → {len(folds)} folds  ({n_trained} trained)")
@@ -734,6 +865,11 @@ def main() -> None:
         loo_df = pd.DataFrame(loo_rows)
         loo_df.to_csv(out_dir / "evaluation_loo.csv", index=False)
         print(f"  → saved evaluation_loo.csv  ({len(loo_df)} folds total)")
+
+        if loo_daily:
+            daily_df = pd.DataFrame(loo_daily)
+            daily_df.to_csv(out_dir / "evaluation_loo_daily.csv", index=False)
+            print(f"  → saved evaluation_loo_daily.csv  ({len(daily_df)} fold-days)")
 
         # ── Performance-by-events plot ─────────────────────────────────────
         plot_df = loo_df[loo_df['trained'] & loo_df['event_prob'].notna()].copy()
@@ -748,11 +884,14 @@ def main() -> None:
             ep       = plot_df['event_prob'].to_numpy(dtype=float)
             detected = ep >= 0.5
 
+            # Marker shape ('o' vs 'x') is redundant with color so the
+            # detected/missed distinction survives grayscale printing and
+            # red-green color blindness, not just the color channel.
             ax.scatter(x[detected],  ep[detected],
-                       color='#2ca02c', s=70, alpha=0.8, zorder=3,
+                       color='#2ca02c', marker='o', s=70, alpha=0.8, zorder=3,
                        label='Detected (prob ≥ 0.5)')
             ax.scatter(x[~detected], ep[~detected],
-                       color='#d62728', s=70, alpha=0.8, zorder=3,
+                       color='#d62728', marker='X', s=70, alpha=0.8, zorder=3,
                        label='Missed (prob < 0.5)')
 
             # Mean per n_train
@@ -772,39 +911,61 @@ def main() -> None:
 
             # Fold counts per n_train
             for n, cnt in plot_df.groupby('n_train_events').size().items():
-                ax.text(float(n), -0.06, f'n={cnt}', ha='center',
-                        fontsize=9, color='#555', transform=ax.get_xaxis_transform())
+                ax.text(float(n), -0.15, f'n={cnt}', ha='center',
+                        fontsize=FIG_ANNOT_SIZE, color='#555',
+                        transform=ax.get_xaxis_transform())
 
-            ax.set_xlabel('Number of training events', fontsize=12)
+            ax.set_xlabel('Number of training events', fontsize=FIG_LABEL_SIZE,
+                          labelpad=28)
             ax.set_ylabel(f'Event window probability\n'
                           f'(max prob in {PRE_EVENT_WINDOW} days before event)',
-                          fontsize=11)
-            ax.set_title(
-                'Per-Station Classifier Performance vs. Training Data Size\n'
-                'Temporal LOO cross-validation — all stations, both seasons',
-                fontsize=11,
-            )
+                          fontsize=FIG_LABEL_SIZE)
+            ax.tick_params(axis='both', labelsize=FIG_TICK_SIZE)
             n_max = int(plot_df['n_train_events'].max())
             ax.set_xlim(0.5, n_max + 0.5)
             ax.set_ylim(-0.02, 1.02)
             ax.set_xticks(range(1, n_max + 1))
-            ax.legend(fontsize=9, loc='upper left')
+            # Legend sits below the x-axis label so it cannot cover the n=1
+            # cluster, which is the densest part of the plot.
+            ax.legend(fontsize=FIG_LEGEND_SIZE, loc='upper center',
+                      bbox_to_anchor=(0.5, -0.34), ncol=3,
+                      frameon=True, borderaxespad=0.0)
             ax.grid(True, alpha=0.3)
-            plt.tight_layout()
+            fig.subplots_adjust(bottom=0.38)
             perf_path = out_dir / "loo_performance_by_events.png"
             fig.savefig(str(perf_path), dpi=150)
             plt.close(fig)
             print(f"  → saved {perf_path}")
 
-            # Print summary by n_train
+            # Print summary by n_train.  Precision / F1 treat each detected
+            # event window as one true positive and each non-event alarm
+            # episode as one false positive.
             print("\n  LOO summary by number of training events:")
             print(f"  {'n_train':>8}  {'folds':>6}  {'mean_prob':>10}  "
-                  f"{'detected':>9}  {'detection_rate':>14}")
+                  f"{'detected':>9}  {'detection_rate':>14}  "
+                  f"{'false_alarms':>13}  {'fa_days':>8}  {'fa_day_rate':>12}  "
+                  f"{'precision':>10}  {'f1':>6}")
             for n, grp in plot_df.groupby('n_train_events'):
-                det = (grp['event_prob'] >= 0.5).sum()
+                tp = int((grp['event_prob'] >= LOO_THRESHOLD).sum())
+                fp = int(grp['false_alarms'].sum())
+                fa_days = int(grp['false_alarm_days'].sum())
+                ne_days = int(grp['n_non_event_days'].sum())
+                recall    = tp / len(grp)
+                precision = tp / (tp + fp) if (tp + fp) else float('nan')
+                f1 = (2 * precision * recall / (precision + recall)
+                      if precision and recall and not pd.isna(precision) else 0.0)
                 print(f"  {n:>8}  {len(grp):>6}  "
                       f"{grp['event_prob'].mean():>10.3f}  "
-                      f"{det:>9}  {det/len(grp):>14.1%}")
+                      f"{tp:>9}  {recall:>14.1%}  "
+                      f"{fp:>13}  {fa_days:>8}  "
+                      f"{fa_days/ne_days if ne_days else float('nan'):>12.1%}  "
+                      f"{precision:>10.3f}  {f1:>6.3f}")
+
+            # Threshold sweep — shows that LOO_THRESHOLD is the F1-maximizing
+            # absolute cutoff, and that higher cutoffs cost more detection than
+            # they save in false alarms (§4.1 of docs/methods_and_results.md).
+            if loo_daily:
+                _print_threshold_sweep(pd.DataFrame(loo_daily))
 
     # --- Operational threshold analysis ---
     # For each station: set threshold = min(LOO event prob) = recall-maximizing.
@@ -1028,6 +1189,9 @@ def main() -> None:
                 forecast_date=item['forecast_date'],
                 aspect=_station_aspect(sid),
                 confidence_tier=_station_tier(sid),
+                png_path=(out_dir / f"fig4_stability_{CASE_STUDY_STATION.replace('_res', '')}.png"
+                          if sid == CASE_STUDY_STATION else None),
+                png_rows=['prob'] if sid == CASE_STUDY_STATION else None,
             )
             print(f"  → {item['out_path']}")
 
@@ -1077,6 +1241,10 @@ def main() -> None:
     create_avalanche_map(df_all, map_path, forecast_date=forecast_date,
                          prob_by_station=prob_by_station,
                          sim_stations=sim_stations)
+
+    fig1_path = out_dir / "fig1_map.png"
+    plot_static_map(df_all, sim_stations, forecast_date, fig1_path)
+    print(f"  → saved {fig1_path.name}")
 
     print("\nDone.")
     print(f"Open {map_path} and click any marker to view its nearest station's stability.")

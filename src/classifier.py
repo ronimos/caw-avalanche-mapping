@@ -14,11 +14,20 @@ Public API:
   predict_proba_series predict daily probabilities → Series
 """
 
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
+
+# Standardized font sizes matching every other print figure in the paper
+# (see FIG_* constants in visualization.py); duplicated here rather than
+# imported to avoid pulling folium/contextily/plotly into this module.
+FIG_LABEL_SIZE = 13
+FIG_TICK_SIZE  = 12
 
 
 # Reduced 5-feature set (default).  Each feature is physically distinct, chosen
@@ -291,6 +300,51 @@ def train_regional(
 
     best_C = _tune_C(X_all, y_all, n_pos)
     return _fit(X_all, y_all, C=best_C)
+
+
+# Display labels matching the paper's Table 1 typesetting (HS, HN24, TA_max,
+# Sn38_min, depth_lower_wl), so the figure and table read as one convention.
+_FEATURE_DISPLAY_NAMES = {
+    'HS':             'HS',
+    'HN24':           'HN24',
+    'TA_max':         r'$TA_{max}$',
+    'sn38_min':       r'$Sn38_{min}$',
+    'depth_lower_wl': 'depth_lower_wl',
+}
+
+
+def plot_feature_importance(
+    model: LogisticRegression,
+    scaler: StandardScaler,
+    out_path: str | Path,
+) -> None:
+    """
+    Save a horizontal bar chart of standardized logistic-regression coefficients.
+
+    Coefficients are fit on scaler-transformed features, so bar length reflects
+    each feature's relative influence on predicted avalanche risk. Red bars
+    increase risk; blue bars decrease it.
+    """
+    coef_df = pd.Series(
+        model.coef_[0], index=scaler.feature_names_in_
+    ).sort_values(key=abs)
+    colors = ['#d62728' if w > 0 else '#1f77b4' for w in coef_df]
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.barh(coef_df.index, coef_df.values, color=colors)
+    ax.set_yticklabels(
+        [_FEATURE_DISPLAY_NAMES.get(name, name) for name in coef_df.index]
+    )
+    ax.tick_params(axis='both', labelsize=FIG_TICK_SIZE)
+    for label in ax.get_yticklabels():
+        if label.get_text() == 'depth_lower_wl':
+            label.set_fontfamily('monospace')
+    ax.axvline(0, color='black', linewidth=0.8)
+    ax.set_xlabel('Standardized coefficient (log-odds per SD)', fontsize=FIG_LABEL_SIZE)
+    ax.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+    fig.savefig(str(out_path), dpi=150, bbox_inches='tight')
+    plt.close(fig)
 
 
 def _tune_C(X: pd.DataFrame, y: pd.Series, n_pos: int) -> float:
