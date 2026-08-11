@@ -26,8 +26,10 @@ from sklearn.preprocessing import StandardScaler
 # Standardized font sizes matching every other print figure in the paper
 # (see FIG_* constants in visualization.py); duplicated here rather than
 # imported to avoid pulling folium/contextily/plotly into this module.
-FIG_LABEL_SIZE = 13
-FIG_TICK_SIZE  = 12
+# Sized in points-per-inch-of-canvas: Figure 4 is authored at 7 in wide and
+# printed at ~3.4 in column width, so on-page type is ~0.47x these values.
+FIG_LABEL_SIZE = 20
+FIG_TICK_SIZE  = 18
 
 
 # Reduced 5-feature set (default).  Each feature is physically distinct, chosen
@@ -330,7 +332,7 @@ def plot_feature_importance(
     ).sort_values(key=abs)
     colors = ['#d62728' if w > 0 else '#1f77b4' for w in coef_df]
 
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig, ax = plt.subplots(figsize=(7, 4.2))
     ax.barh(coef_df.index, coef_df.values, color=colors)
     ax.set_yticklabels(
         [_FEATURE_DISPLAY_NAMES.get(name, name) for name in coef_df.index]
@@ -340,7 +342,8 @@ def plot_feature_importance(
         if label.get_text() == 'depth_lower_wl':
             label.set_fontfamily('monospace')
     ax.axvline(0, color='black', linewidth=0.8)
-    ax.set_xlabel('Standardized coefficient (log-odds per SD)', fontsize=FIG_LABEL_SIZE)
+    # Two lines so the label stays inside the canvas at print type size.
+    ax.set_xlabel('Standardized coefficient\n(log-odds per SD)', fontsize=FIG_LABEL_SIZE)
     ax.grid(axis='x', alpha=0.3)
     plt.tight_layout()
     fig.savefig(str(out_path), dpi=150, bbox_inches='tight')

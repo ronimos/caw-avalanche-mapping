@@ -16,9 +16,8 @@ from classifier import (aggregate_predictions, blend_probabilities,
                         train_regional, train_station)
 from features import build_daily_features
 from snowpack_io import extract_pro_coordinates, find_nearest_pro, parse_snow_data
-from visualization import (FIG_ANNOT_SIZE, FIG_LABEL_SIZE, FIG_LEGEND_SIZE,
-                           FIG_TICK_SIZE, create_avalanche_map,
-                           plot_interactive_stability, plot_static_map)
+from visualization import (create_avalanche_map, plot_interactive_stability,
+                           plot_static_map)
 
 # ── season config ─────────────────────────────────────────────────────────────
 # SEASON:       current / test season — used for prediction, plots, and the map.
@@ -83,7 +82,17 @@ def _parse_args() -> argparse.Namespace:
 
 
 PRE_EVENT_WINDOW = 3  # days before event counted as a "warning window"
+
 LOO_THRESHOLD    = 0.5  # probability above which a day counts as a warning
+
+# Learning-curve figure (Figure 3 in the ISSW paper).  Sizes are points per
+# inch of canvas, not points on the page: the figure is authored 8 in wide and
+# printed at ~3.4 in column width, so on-page type is ~0.41x these values.
+# Raising fontsize and figsize together is a no-op — only the ratio matters.
+LOO_LABEL_SIZE  = 20
+LOO_TICK_SIZE   = 18
+LOO_LEGEND_SIZE = 15
+LOO_ANNOT_SIZE  = 15
 
 
 def _run_loo_folds(
@@ -888,52 +897,53 @@ def main() -> None:
             # detected/missed distinction survives grayscale printing and
             # red-green color blindness, not just the color channel.
             ax.scatter(x[detected],  ep[detected],
-                       color='#2ca02c', marker='o', s=70, alpha=0.8, zorder=3,
+                       color='#2ca02c', marker='o', s=90, alpha=0.8, zorder=3,
                        label='Detected (prob ≥ 0.5)')
             ax.scatter(x[~detected], ep[~detected],
-                       color='#d62728', marker='X', s=70, alpha=0.8, zorder=3,
+                       color='#d62728', marker='X', s=90, alpha=0.8, zorder=3,
                        label='Missed (prob < 0.5)')
 
             # Mean per n_train
             mean_by_n = plot_df.groupby('n_train_events')['event_prob'].mean()
             ax.plot(mean_by_n.index.to_numpy(dtype=float), mean_by_n.to_numpy(dtype=float),
-                    'k--o', linewidth=1.8, markersize=7, zorder=4, label='Mean')
+                    'k--o', linewidth=2.0, markersize=9, zorder=4, label='Mean')
 
             # Non-event background reference
             non_event_ref = plot_df['non_event_median'].median()
             if not pd.isna(non_event_ref):
                 ax.axhline(non_event_ref, color='steelblue', linestyle=':',
-                           linewidth=1.2,
+                           linewidth=1.5,
                            label=f'Median non-event prob ({non_event_ref:.3f})')
 
-            ax.axhline(0.5, color='grey', linestyle='--', linewidth=1,
+            ax.axhline(0.5, color='grey', linestyle='--', linewidth=1.2,
                        alpha=0.6, label='0.5 threshold')
 
             # Fold counts per n_train
             for n, cnt in plot_df.groupby('n_train_events').size().items():
-                ax.text(float(n), -0.15, f'n={cnt}', ha='center',
-                        fontsize=FIG_ANNOT_SIZE, color='#555',
+                ax.text(float(n), -0.11, f'n={cnt}', ha='center',
+                        fontsize=LOO_ANNOT_SIZE, color='#555',
                         transform=ax.get_xaxis_transform())
 
-            ax.set_xlabel('Number of training events', fontsize=FIG_LABEL_SIZE,
-                          labelpad=28)
+            ax.set_xlabel('Number of training events', fontsize=LOO_LABEL_SIZE,
+                          labelpad=44)
+            # Shorter than the x-label and a size down: rotated text is bounded
+            # by the axes height, which is the tighter constraint here.
             ax.set_ylabel(f'Event window probability\n'
-                          f'(max prob in {PRE_EVENT_WINDOW} days before event)',
-                          fontsize=FIG_LABEL_SIZE)
-            ax.tick_params(axis='both', labelsize=FIG_TICK_SIZE)
+                          f'({PRE_EVENT_WINDOW}-day pre-event max)',
+                          fontsize=LOO_TICK_SIZE)
+            ax.tick_params(axis='both', labelsize=LOO_TICK_SIZE)
             n_max = int(plot_df['n_train_events'].max())
             ax.set_xlim(0.5, n_max + 0.5)
             ax.set_ylim(-0.02, 1.02)
             ax.set_xticks(range(1, n_max + 1))
             # Legend sits below the x-axis label so it cannot cover the n=1
             # cluster, which is the densest part of the plot.
-            ax.legend(fontsize=FIG_LEGEND_SIZE, loc='upper center',
-                      bbox_to_anchor=(0.5, -0.34), ncol=3,
+            ax.legend(fontsize=LOO_LEGEND_SIZE, loc='upper center',
+                      bbox_to_anchor=(0.5, -0.38), ncol=2,
                       frameon=True, borderaxespad=0.0)
             ax.grid(True, alpha=0.3)
-            fig.subplots_adjust(bottom=0.38)
             perf_path = out_dir / "loo_performance_by_events.png"
-            fig.savefig(str(perf_path), dpi=150)
+            fig.savefig(str(perf_path), dpi=150, bbox_inches='tight')
             plt.close(fig)
             print(f"  → saved {perf_path}")
 
