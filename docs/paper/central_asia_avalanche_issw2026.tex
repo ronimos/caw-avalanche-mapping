@@ -40,7 +40,11 @@
 
 \addbibresource{references.bib}
 
-\usepackage{parskip} % no indent with new paragraph
+% skip= pins the package to issw.cls's own \parskip (4pt plus 1pt minus 1pt);
+% the package's default (.5\baselineskip plus 2pt) would widen every paragraph
+% gap beyond the template. Loading it still gives the tight list/bibliography
+% spacing (\topsep and \itemsep zeroed) that the class alone does not set.
+\usepackage[skip=4pt plus 1pt minus 1pt]{parskip}
 
 % Consistent feature-name formatting (matches Table 1 everywhere it's used)
 \newcommand{\HS}{\mathrm{HS}}
@@ -81,7 +85,7 @@ Avalanches in Central Asia, particularly in Afghanistan, Tajikistan, and Pakista
 Following its implementation, it became clear that a primary constraint on forecasting capability is the limited availability of snowpack, weather, and avalanche observations, driven by both geographic remoteness and government restrictions on data sharing.
 We address this gap by developing a proof-of-concept framework that fuses heterogeneous, publicly available data sources to support avalanche forecasting in data-sparse regions. Specifically, we combine numerical weather prediction (NWP)-forced SNOWPACK simulations (4 km grid spacing) with opportunistically extracted avalanche observations from social media posts shared by local residents. This approach treats informal reports as weakly labeled observations, enabling the reconstruction of avalanche occurrence in the absence of systematic records.
 We compiled 69 valley-floor avalanche observations from social media and AKAH field logs across two winters, and matched each to the nearest SNOWPACK station sharing its predominant aspect, reconstructing the associated meteorological and snowpack conditions at 30 virtual stations. Five daily variables drive the model: total snow depth, 24-hour new snow, maximum air temperature ($\TAmax$), the whole-profile minimum natural stability index ($Sn38$), and the burial depth of the weakest layer. To distinguish avalanche from non-avalanche days, we fit a hierarchical Bayesian logistic regression that gives each station its own baseline avalanche rate while sharing the influence of the five variables across the network.
-Trained on 2024–2025 and evaluated on the unseen 2025–2026 season, the model ranks avalanche days above quiet ones with an AUC-ROC of 0.715 and an average precision 7.0 times the no-skill baseline. Total snow depth carries the most weight, followed by weak-layer burial depth, which lowers risk as it deepens. New snow and $\TAmax$ both raise risk, with warming weighing about as much as new-snow loading, suggesting that warm, likely rain-influenced storms are at least as important as loading in driving these events. Detection improves steeply with local history, from 56\% with one prior logged event at a station to 100\% with three, and four stations already meet an operational false-alarm standard of roughly one per month.
+Trained on 2024–2025 and evaluated on the unseen 2025–2026 season, the model ranks avalanche days above quiet ones with an AUC-ROC of 0.715 and an average precision seven times the no-skill baseline. Total snow depth carries the most weight, followed by weak-layer burial depth, which lowers risk as it deepens. New snow and $\TAmax$ both raise risk, with warming weighing about as much as new-snow loading, suggesting that warm, likely rain-influenced storms are at least as important as loading in driving these events. Detection improves steeply with local history, from 56\% with one prior logged event at a station to 100\% with three. Further, four of the stations already meet an operational false-alarm standard of roughly one per month.
 This work incorporates a novel data-fusion and weak-supervision framework for avalanche forecasting, integrating NWP-driven snowpack modeling with opportunistic, publicly sourced observations. However, this framework is constrained by a limited event dataset and a model chain that lacks rigorous, component-wise validation, introducing uncertainty in both inputs and predictions. As such, the framework is best interpreted as a decision-support tool rather than a fully autonomous forecasting system. Coupled with expert validation and interpretation, it provides a scalable pathway for developing operational guidance in regions where conventional data streams are sparse or unavailable.
 \end{abstract}
 
@@ -180,15 +184,15 @@ We tested the model three ways:
 \section{RESULTS}
 \subsection{Per-Station Performance and Learning Curve}
 We asked the practical question at each station: using only what the model knew before an avalanche ran, did it flag the day? Sixteen stations had enough history to test. Eight caught every event. Three caught about half. Five missed completely, and all five had exactly one prior event to learn from.
-The pattern inside that failure is the most useful thing we found (Table \ref{tab:table_2} and Figure \ref{fig:learning_curve}). With one logged event at a station, the model caught 56\% of the next ones. With two, 86\%. With three, it caught all of them. Every added observation delivers a large, consistent gain, and the dataset sits on the steep part of that curve. The limiting factor here is not the model but the number of recorded avalanches. Three events at a station is roughly where we would start trusting it. Detection is only half the ledger: false alarms at a fixed threshold do not improve along the same curve, and the full accounting (threshold sweeps and per-station false alarm rates) is in the supplementary technical report \parencite{ShelegEtAl2026}.
+The pattern inside that failure is the most useful thing we found (Table \ref{tab:table_2} and Figure \ref{fig:learning_curve}). \textit{With one logged event at a station, whichever season it came from, the model caught 56\% of the next ones. With two, 86\%.} With three, it caught all of them. Those counts are cumulative across the record rather than within a single winter, so an event logged in an earlier season still carries weight. Every added observation delivers a large, consistent gain, and the dataset sits on the steep part of that curve. The limiting factor here is not the model but the number of recorded avalanches. Three events at a station is roughly where we would start trusting it. Detection is only half the ledger: false alarms at a fixed threshold do not improve along the same curve, and the full accounting (threshold sweeps and per-station false alarm rates) is in the supplementary technical report \parencite{ShelegEtAl2026}.
 
 \begin{figure}[ht]
   \centering
   \includegraphics[
     width=1.\columnwidth,
-    alt={Scatter plot of per-station event-window probability against number of prior training events. Detected events are green circles and missed events are red X marks, so the two classes are distinguishable by both color and shape; a black dashed mean line rises from 0.48 at one prior event to 0.78 at two and 0.72 at three.}
+    alt={Scatter plot of per-station event-window probability against number of prior training events at a station, counted across any season. Detected events are green circles and missed events are red X marks, so the two classes are distinguishable by both color and shape; a black dashed mean line rises from 0.48 at one prior event to 0.78 at two and 0.72 at three.}
   ]{./figures/fig2_learning_curve.png}
-  \caption{Learning curve: detection rate and mean warning probability as a function of the number of prior observed events at a station.}
+  \caption{Learning curve: detection rate and mean warning probability as a function of the number of prior observed events at a station (any season).}
   \label{fig:learning_curve}
 \end{figure}
 
@@ -198,7 +202,7 @@ The pattern inside that failure is the most useful thing we found (Table \ref{ta
   \label{tab:table_2}
   \begin{tabular}{lll}
     \hline
-    \textbf{\textit{Prior events at station}} & \textbf{\textit{Detection rate}} & \textbf{\textit{Mean warning probability}} \\
+    \textbf{\textit{Prior events at station (any season)}} & \textbf{\textit{Detection rate}} & \textbf{\textit{Mean warning probability}} \\
     \hline
     1 & 56\% & 0.48 \\
     2 & 86\% & 0.78 \\
@@ -208,7 +212,7 @@ The pattern inside that failure is the most useful thing we found (Table \ref{ta
 \end{table*}
 
 \subsection{Cross-Season Performance}
-The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715, and its warnings landed about seven times more precisely than random guessing.
+The harder test is whether the model holds up in a season it has never seen. We trained on 2024–2025 and evaluated on the 2025–2026 season's 37 unique station-day events (43 raw reports that season, six of which shared a station and date with another report and so collapsed into one event), with nothing from that winter in the training data. It ranked dangerous days above quiet ones with an AUC-ROC of 0.715, \textit{and its warnings landed about seven times more precisely than random guessing.}
 We also tried simpler setups: one model per station, one model for the whole region, and a blend of the two. The shared, hierarchical model beat all of them. A station with few logged events borrows the pattern from better-observed stations nearby while still keeping whatever local history it has. The full model comparison and statistical detail are available in the supplementary technical report \parencite{ShelegEtAl2026}.
 
 \subsection{What the Model Learned}
@@ -266,7 +270,9 @@ The reports carry their own bias. We only know about avalanches somebody saw. A 
 These gaps set a hard limit on how forecasters should use the tool. It informs a person's decision; it does not make it. We built it as a second opinion for a forecaster, not a replacement for one. Expert judgment is not an afterthought bolted onto the output: it is what turns a valley-floor report into a start zone in the first place, the step every observation passes through before it ever reaches the model. The model scales that judgment; it does not replace it.
 
 \subsection{Future Work}
-Three things would close the biggest gaps.
+Four things would close the biggest gaps, and the first one costs the least.
+
+\textbf{A standing avalanche log.} The single highest-value improvement available to this framework is not an algorithm or an instrument. It is a written record of avalanches that AKAH staff already witness. Our learning curve puts a number on it: every station that accumulated three logged events detected all of its subsequent avalanches, while every station that missed completely had exactly one event to learn from. Moving a station from one record to three bought more skill than any modeling change we tested, and it requires only a date, an approximate location, and rough size, aspect, and elevation, captured on a form as staff encounter avalanches during their normal work. No new sensors, no field campaign, and no additional budget line stand between AKAH and that gain. We therefore recommend that AKAH and its partner organizations treat routine avalanche logging as operational infrastructure and sustain it season after season. Each additional winter of records lifts more stations past the three-event threshold, and the benefit compounds, because every event logged this year sharpens each forecast the model issues in the years that follow.
 
 \textbf{Satellite detection.} The observation bias is the worst weakness we have, and remote sensing is the direct fix. Synthetic-aperture radar (SAR) sees avalanche debris through cloud and darkness, so it catches the paths that run in remote, unpopulated drainages that no observer would ever report. Capturing these detections into the training corpus would enlarge the record and lessen the bias. Just as important, it would let us hold model output against activity somebody actually measured rather than activity we simulated.
 
@@ -275,11 +281,11 @@ Three things would close the biggest gaps.
 \textbf{Runout modeling.} Right now we match a report back to a start zone and stop there. Coupling the stability output to a flow and runout model, building directly on the terrain-tracing already in the pipeline, would let the system reason about individual paths: which ones can reach the road, which ones can reach the village, and under what loading. That turns a per-station probability into a spatially explicit hazard estimate.
 
 \section{CONCLUSIONS}
-We ran NWP-forced SNOWPACK and matched the output against avalanche reports locals posted to Facebook and Instagram. In countries with no weather stations at start-zone elevation and nobody digging pits, that gives a forecaster something to work with. Trained on 2024–2025 and tested on 2025–2026, the model put dangerous days above quiet ones and flagged them seven times more precisely than chance. Four stations already meet an operational false-alarm standard.
+We ran NWP-forced SNOWPACK and matched the output against avalanche reports locals posted to Facebook and Instagram. In countries with no weather stations at start-zone elevation and nobody digging pits, that gives a forecaster something to work with. Trained on 2024–2025 and tested on 2025–2026, \textit{the model put dangerous days above quiet ones and flagged them seven times more precisely than chance.} Four stations already meet an operational false-alarm standard.
 
 What it learned makes physical sense. Deep snow drives valley-floor runouts, shallow weak layers raise the odds of triggering an avalanche, and warming carries about the same weight as new snow. Since our stations sit higher and colder, we can't see precipitation type at the actual start zones. Since warm-signal events needed less total snowfall to trigger an avalanche than the cold ones did, we assume that these events are consistent with rain-on-snow, and since rain loads the slab and weakens it at the same time, it takes less of it to go. None of this is checked against actual snowpack observations, so every pattern here is a physically sensible hypothesis, not a proven one. But a model with no physical grounding wouldn't land on the mechanisms forecasters already trust by chance.
 
-The fastest way to make this better isn't a different algorithm. It is more logged events. Detection went from just over half to nearly certain between one and three events at a station. Every season AKAH keeps logging avalanches is the cheapest upgrade this framework gets. And because the model reports its own confidence, a high probability at a station with several logged events is a real signal ready to alert a forecaster; the same number at a station with no local history is a reason to lean on experience and terrain judgment instead.
+The fastest way to improve isn't a different algorithm. It is more logged events. \textit{Detection went from just over half to nearly certain between one and three historical avalanche events at a station.} Every season AKAH keeps logging avalanches is the cheapest upgrade this framework gets, cheaper than any sensor, any satellite tally, and any change of algorithm, and it is the only one that costs nothing to start. And because the model reports its own confidence, a high probability at a station with several logged events is a real signal ready to alert a forecaster; the same number at a station with no local history is a reason to lean on experience and terrain judgment instead.
 
 We view this framework as a decision-support layer whose reach grows with every observation added, and as a template for avalanche forecasting in data-sparse mountain regions worldwide.
 
