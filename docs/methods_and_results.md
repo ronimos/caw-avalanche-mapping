@@ -139,15 +139,30 @@ The strongest stations show genuine discrimination, not blanket over-prediction:
 
 **Figure 1.** Learning curve: per-fold event-window probability and mean detection rate as a function of the number of prior training events at a station.
 
-**Table 4. LOO detection performance by number of training events.**
+**Table 4. LOO detection performance by number of training events.** False positives count runs of consecutive non-event days at or above the 0.5 threshold, collapsed to one per run, so a multi-day alarm and a multi-day warning window each contribute one unit. Non-event days exclude the ±4-day grace zone around every known event. Precision = TP / (TP + FP); F1 combines it with the detection rate.
 
-| Training events | Folds | Mean event prob | Detection rate |
-|---|---|---|---|
-| 1 | 16 | 0.477 | 56.2% |
-| 2 | 7 | 0.779 | 85.7% |
-| 3 | 2 | 0.719 | 100.0% |
+| Training events | Folds | Mean event prob | Detection rate | False positives | FA days / non-event days | Precision | F1 |
+|---|---|---|---|---|---|---|---|
+| 1 | 16 | 0.477 | 56.2% | 67 | 411 / 2325 (17.7%) | 0.118 | 0.196 |
+| 2 | 7 | 0.779 | 85.7% | 42 | 340 / 980 (34.7%) | 0.125 | 0.218 |
+| 3 | 2 | 0.719 | 100.0% | 19 | 124 / 279 (44.4%) | 0.095 | 0.174 |
 
 Detection rate climbs from 56% with one prior event to 86% with two and 100% with three, while mean event window probability rises from 0.48 to 0.78. This learning curve is the paper's central empirical result: per-station performance improves steeply with observation density, and the current dataset — 1–4 events per station — sits squarely on the steep portion where each additional observation yields a large gain. The n = 3 level rests on only two folds and should be read as indicative; the n = 1 (16 folds) and n = 2 (7 folds) points are more robust.
+
+Precision and F1 stay flat across the same curve, and the false-alarm day rate rises rather than falls. Additional training events raise the entire probability distribution at a station instead of separating event days from the rest: the stations with the highest mean event probabilities also carry the highest backgrounds, with median non-event probabilities of 0.47 (153203_res), 0.56 (183642_res), and 0.84 (268603_res). Class imbalance then caps precision — 16 test events stand against roughly 2,300 non-event days, so a 5% false-alarm rate alone would generate more false positives than the entire event set.
+
+**Table 4b. Threshold sweep across all folds.** The reported 0.5 cutoff maximizes F1; raising it trades away detection faster than it removes false alarms.
+
+| Threshold | n=1 detection / F1 | n=2 detection / F1 | n=3 detection / F1 |
+|---|---|---|---|
+| 0.5 | 56.2% / 0.196 | 85.7% / 0.218 | 100.0% / 0.174 |
+| 0.7 | 37.5% / 0.190 | 57.1% / 0.195 | 50.0% / 0.222 |
+| 0.8 | 25.0% / 0.154 | 57.1% / 0.222 | 0.0% / 0.000 |
+| 0.9 | 12.5% / 0.100 | 42.9% / 0.222 | 0.0% / 0.000 |
+| 0.95 | 6.2% / 0.057 | 14.3% / 0.118 | 0.0% / 0.000 |
+| p95 of per-fold background | 37.5% / 0.150 | 42.9% / 0.158 | 50.0% / 0.154 |
+
+At a 0.9 threshold the single-event detection rate falls from 56% to 13% while false positives drop only from 67 to 22, and thresholds anchored to each fold's own background percentile perform no better than the absolute cutoffs. No global threshold escapes the trade-off, which motivates the per-station operating points in §4.5: those are set from each station's own LOO event probabilities rather than from a shared absolute value.
 
 ### 4.2 Aggregate Model Performance and Event-Level Detection
 
