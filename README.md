@@ -43,7 +43,7 @@ caw-avalanche-mapping/
 ├── docs/
 │   ├── map_user_guide.md           # interactive map feature guide
 │   ├── methods_and_results.md      # paper methods & results
-│   ├── ISSW2026_paper_outline.md   # paper outline
+│   ├── paper/                      # ISSW 2026 extended abstract (.tex, .md, figures)
 │   └── map_design_discussion.md    # map design notes
 ├── assets/<SEASON>/
 │   └── stability_*.html   # per-station Plotly stability charts (served by GitHub Pages)
