@@ -190,18 +190,20 @@ The classifiers use a reduced five-feature daily set, selected to limit overfitt
 
 ## Map Features
 
-The forecast maps show simulation station circles and field observation triangles, coloured by the probability scale below. See `docs/map_user_guide.md` for details.
+The forecast maps show simulation station circles and field observation triangles. Each is coloured by a signal level, and every marker has a white halo and dark outline so it stays visible on topographic and satellite tiles. See `docs/map_user_guide.md` for details.
 
-| Colour | Probability |
-|--------|-------------|
-| Gray | No classifier output |
-| Green | < 33 % |
-| Gold | 33 – 50 % |
-| Orange | 50 – 65 % |
-| Red | 65 – 80 % |
-| Dark red | ≥ 80 % |
+Each model reaches a level on its own scale. Blended stations use probability. Hierarchical stations use probability divided by their chart's reference day (a known avalanche day at the station, or the regional one), because their raw probabilities sit near the ~1 % base rate and would all read as very low. Hovering a marker gives the number behind its level.
 
-Markers are coloured by raw probability. The hierarchical model's probabilities sit near its ~1 % base rate, so hierarchical stations read green on the map even when their chart, scaled to a known or regional avalanche day, shows a strong signal. The tooltip gives the ratio.
+| Colour | Level | Blended (probability) | Hierarchical (× avalanche day) |
+|--------|-------|----------------------|-------------------------------|
+| Dark red | Very high | ≥ 80 % | ≥ 2× |
+| Red | High | 65 – 80 % | 1 – 2× |
+| Orange | Moderate | 50 – 65 % | 0.5 – 1× |
+| Gold | Low | 33 – 50 % | 0.25 – 0.5× |
+| Green | Very low | < 33 % | < 0.25× |
+| Gray | No forecast | | |
+
+The cut points are `MAP_PROB_LEVELS` and `MAP_RATIO_LEVELS` in `src/visualization.py`. 1× means as strong as a real avalanche day; 0.5× matches `HIER_RELIABILITY_THRESHOLD` in `src/main.py`. The regional-model overlay always uses the probability scale.
 
 Interactions:
 - Click any station marker to open its stability chart.
@@ -212,11 +214,13 @@ Interactions:
 
 Station confidence tiers, from the operational false-alarm analysis of the evaluation run:
 
-| Tier | Fill opacity | False alarm rate | Stations (2025-26 evaluation) |
+| Tier | Marker | False alarm rate | Stations (2025-26 evaluation) |
 |------|-------------|-----------------|----------|
-| Ready | 0.82 (solid) | ≤ 10 % | 160942 E, 153203 S, 180343 S, 164801 N |
-| Marginal | 0.42 (faded) | 10 – 25 % | 272401 N, 176522 E, 250224 S |
-| Not ready | 0.12 (ghost) | > 25 % | All others |
+| Ready | strong fill (0.95), thick outline | ≤ 10 % | 160942 E, 153203 S, 180343 S, 164801 N |
+| Marginal | medium fill (0.75) | 10 – 25 % | 272401 N, 176522 E, 250224 S |
+| Not ready | light fill (0.55), thin outline | > 25 % | All others |
+
+A dashed outline marks a hierarchical-model station, a dotted one a blended fallback.
 
 ## Output Files
 

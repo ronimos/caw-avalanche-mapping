@@ -625,6 +625,10 @@ def _build_sim_stations(
             'confidence_tier':   _station_tier(stem, station_tier_map),
             'model_used':        model_used.get(stem, 'blended'),
             'known_event_ratio': known_ratio,
+            # Divisor that turns this station's probability into the ratio the
+            # map colours hierarchical stations by (same reference as its chart).
+            'ratio_ref':         (hier_known_event_ref.get(stem)
+                                  if model_used.get(stem) == 'hierarchical' else None),
             'known_event_basis': 'regional' if stem in regional_ref_ids else 'station',
             'regional_prob':     reg_prob,
             'url':               f"assets/{season}/stability_{stem}.html",

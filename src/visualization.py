@@ -55,6 +55,15 @@ WEB_TICK_SIZE   = 12
 WEB_LEGEND_SIZE = 12
 WEB_ANNOT_SIZE  = 12
 
+# Map colour bands (green, gold, orange, red, dark red). Blended stations are
+# coloured by probability. Hierarchical stations are coloured by probability ÷
+# their chart's reference (a known avalanche day at the station, or a regional
+# one): their raw probabilities sit near the ~1 % base rate and would all read
+# green. 1x = as strong as a real event day; 0.5x matches
+# HIER_RELIABILITY_THRESHOLD in main.py.
+MAP_PROB_LEVELS  = [0.33, 0.50, 0.65, 0.80]
+MAP_RATIO_LEVELS = [0.25, 0.50, 1.00, 2.00]
+
 # Top fraction of snowpack (by burial depth) treated as the "upper zone".
 # Must match UPPER_ZONE_FRAC in classifier.py.
 _UPPER_ZONE_FRAC = 0.40
@@ -795,6 +804,7 @@ def _sim_layer_html(
         hidden (weight 0, fillOpacity 0) — _simLayer is the sole visual layer.
     """
     stations_js = json.dumps(stations)
+    prob_levels, ratio_levels = json.dumps(MAP_PROB_LEVELS), json.dumps(MAP_RATIO_LEVELS)
     return f"""
     <div id="aspect-filter" style="
         position: fixed; bottom: 40px; right: 12px; z-index: 1000;
@@ -828,59 +838,92 @@ def _sim_layer_html(
         var _SIM        = {stations_js};
         var _PROB_SERIES = {prob_series_json};  // {{station_id: {{"YYYY-MM-DD": prob}}}}
 
-        function _simColors(p) {{
-            if (p === null || p === undefined) return {{fill:'#808080', stroke:'#505050'}};
-            if (p >= 0.80) return {{fill:'#7b0000', stroke:'#3d0000'}};
-            if (p >= 0.65) return {{fill:'#d62728', stroke:'#8b0000'}};
-            if (p >= 0.50) return {{fill:'#ff7f0e', stroke:'#b35a00'}};
-            if (p >= 0.33) return {{fill:'#e6c200', stroke:'#9e8600'}};
-            return {{fill:'#2ca02c', stroke:'#1a6b1a'}};
+        // Colour band of a station on a given probability: by probability for
+        // blended stations, by probability / ratio_ref for hierarchical ones
+        // (MAP_PROB_LEVELS / MAP_RATIO_LEVELS in visualization.py).
+        var _PROB_LEVELS  = {prob_levels};
+        var _RATIO_LEVELS = {ratio_levels};
+        var _COLORS = [
+            {{fill:'#2ca02c', stroke:'#1a6b1a'}}, {{fill:'#e6c200', stroke:'#9e8600'}},
+            {{fill:'#ff7f0e', stroke:'#b35a00'}}, {{fill:'#d62728', stroke:'#8b0000'}},
+            {{fill:'#7b0000', stroke:'#3d0000'}}];
+        var _REF = {{}};
+        _SIM.forEach(function(s) {{ if (s.ratio_ref) _REF[s.id] = s.ratio_ref; }});
+        function _level(sid, p) {{
+            if (p === null || p === undefined) return -1;
+            var ref = _REF[sid], v = ref ? p / ref : p, cuts = ref ? _RATIO_LEVELS : _PROB_LEVELS;
+            var lev = 0;
+            cuts.forEach(function(c) {{ if (v >= c) lev++; }});
+            return lev;
         }}
+        var _LEVEL_NAMES = ['Very low', 'Low', 'Moderate', 'High', 'Very high'];
+        var _GRAY = {{fill:'#808080', stroke:'#505050'}};
+        function _simColors(sid, p) {{
+            var lev = _level(sid, p);
+            return lev < 0 ? _GRAY : _COLORS[lev];
+        }}
+        function _probColors(p) {{          // probability scale only (regional overlay)
+            if (p === null || p === undefined) return _GRAY;
+            var lev = 0;
+            _PROB_LEVELS.forEach(function(c) {{ if (p >= c) lev++; }});
+            return _COLORS[lev];
+        }}
+        // A marker readable on any base map: a white halo under a dark outline
+        // around the coloured fill. Returned as one layer (tooltip/click bind
+        // to the group).
+        function _haloCircle(latlng, fill, fillOp, weight, dash) {{
+            return L.featureGroup([
+                L.circleMarker(latlng, {{radius: 8, stroke: true, color: '#ffffff', weight: weight + 3,
+                                        opacity: 0.95, fill: false, interactive: false}}),
+                L.circleMarker(latlng, {{radius: 8, fillColor: fill, fillOpacity: fillOp,
+                                        color: '#1b1b1b', weight: weight, opacity: 1, dashArray: dash}}),
+            ]);
+        }}
+        window._stationColors = _simColors;   // shared with the observation layer
+        window._stationSignal = function(sid, p) {{   // tooltip text, shared too
+            var lev = _level(sid, p);
+            if (lev < 0) return 'Signal: n/a';
+            var ref = _REF[sid];
+            return 'Signal: <b>' + _LEVEL_NAMES[lev] + '</b> ('
+                + (ref ? (p / ref).toFixed(2) + 'x avalanche day' : Math.round(p * 100) + ' %') + ')';
+        }};
+        window._stationRef    = function(sid) {{ return _REF[sid]; }};
 
         var _simAspect = 'All';
         var _simLayer = L.geoJson(null, {{
             pointToLayer: function(feature, latlng) {{
                 var p    = feature.properties.forecast_prob;
-                var c    = _simColors(p);
+                var c    = _simColors(feature.properties.id, p);
                 var tier = feature.properties.confidence_tier;
-                // Ring colour   = probability (vivid — primary risk signal)
-                // Fill opacity  = confidence tier (§4.5):
-                //   0.82 (solid)  → Ready     (FA ≤ 10%)
-                //   0.42 (faded)  → Marginal  (FA 10–25%)
-                //   0.12 (ghost)  → Not ready (FA > 25%)
-                // Ring weight also varies by tier for a redundant confidence cue.
-                var fillOp = tier === 'ready' ? 0.82 : tier === 'marginal' ? 0.42 : 0.12;
-                var weight = tier === 'ready' ? 3.5  : tier === 'marginal' ? 2.5  : 1.5;
-                // Ring dash pattern flags which model this station's number
-                // comes from: dashed = hierarchical (provisional — blended
-                // failed the FA-rate bar); dotted = blended kept only as a
-                // last resort because hierarchical ALSO failed its own
-                // known-event reliability check (see HIER_RELIABILITY_THRESHOLD
-                // in main.py) — lower confidence than either model alone.
+                // Fill colour   = signal level (see _level: each model reaches a
+                //                 level on its own scale)
+                // Fill strength = confidence tier (§4.5), never faint enough to
+                //                 vanish on topo/satellite tiles:
+                //   0.95 → Ready (FA ≤ 10%), 0.75 → Marginal (FA 10–25%),
+                //   0.55 → Not ready (FA > 25%)
+                // Outline width repeats the tier; the white halo keeps the
+                // marker visible on any base map.
+                var fillOp = tier === 'ready' ? 0.95 : tier === 'marginal' ? 0.75 : 0.55;
+                var weight = tier === 'ready' ? 3    : tier === 'marginal' ? 2    : 1.5;
+                // Outline dash flags the model: dashed = hierarchical
+                // (provisional, blended failed the FA-rate bar); dotted =
+                // blended kept as a last resort because hierarchical also
+                // failed its known-event reliability check.
                 var modelUsed = feature.properties.model_used;
-                var dash = modelUsed === 'hierarchical' ? '3,3'
+                var dash = modelUsed === 'hierarchical' ? '4,3'
                     : modelUsed === 'blended_fallback' ? '1,3'
                     : null;
-                return L.circleMarker(latlng, {{
-                    radius:      7,
-                    fillColor:   c.fill,
-                    fillOpacity: fillOp,
-                    color:       c.fill,
-                    weight:      weight,
-                    opacity:     1,
-                    dashArray:   dash,
-                }});
+                return _haloCircle(latlng, c.fill, fillOp, weight, dash);
             }},
             onEachFeature: function(feature, layer) {{
                 var pr = feature.properties;
-                var probStr = (pr.forecast_prob !== null && pr.forecast_prob !== undefined)
-                    ? Math.round(pr.forecast_prob * 100) + '%' : 'n/a';
+                var hasP = pr.forecast_prob !== null && pr.forecast_prob !== undefined;
                 var tier = pr.confidence_tier;
                 var tierLabel = tier === 'ready'
                     ? '<b>Ready</b> (FA &le;10%)'
                     : tier === 'marginal'
                         ? '<b>Marginal</b> (FA 10–25%)'
-                        : (pr.forecast_prob !== null && pr.forecast_prob !== undefined)
+                        : hasP
                             ? 'Not ready (FA &gt;25%)'
                             : 'No data';
                 var modelLabel = pr.model_used === 'hierarchical'
@@ -888,21 +931,19 @@ def _sim_layer_html(
                     : pr.model_used === 'blended_fallback'
                         ? 'Blended <i>(fallback — low confidence)</i>'
                         : 'Blended';
-                // Hierarchical's raw probability is shrunk toward the ~1-2%
-                // regional base rate and reads as an unalarming small number
-                // on its own — show it relative to this station's own known
-                // avalanche day instead, matching the chart it links to.
-                var probLine = 'Prob: <b>' + probStr + '</b>';
-                if (pr.model_used === 'hierarchical' && pr.known_event_ratio !== null
-                        && pr.known_event_ratio !== undefined) {{
-                    probLine += ' (' + pr.known_event_ratio.toFixed(1) + 'x a '
-                        + (pr.known_event_basis === 'regional' ? 'regional' : 'known')
-                        + ' avalanche day)';
-                }}
+                // The number behind the level, on the scale that set it:
+                // hierarchical probabilities sit near the ~1-2 % base rate, so
+                // they are shown relative to an avalanche day (as on the chart).
+                var lev = _level(pr.id, pr.forecast_prob);
+                var ref = _REF[pr.id];
+                var number = !hasP ? 'no forecast'
+                    : ref ? (pr.forecast_prob / ref).toFixed(2) + 'x a '
+                            + (pr.known_event_basis === 'regional' ? 'regional' : 'known') + ' avalanche day'
+                    : Math.round(pr.forecast_prob * 100) + ' % probability';
                 layer.bindTooltip(
-                    '<b>' + pr.id.replace('_res','') + '</b><br>'
-                    + 'Aspect: ' + pr.aspect + '<br>'
-                    + probLine + '<br>'
+                    '<b>Station ' + pr.id.replace('_res','') + ' &middot; ' + pr.aspect + '</b><br>'
+                    + 'Signal: <b>' + (lev < 0 ? 'n/a' : _LEVEL_NAMES[lev]) + '</b><br>'
+                    + number + '<br>'
                     + 'Confidence: ' + tierLabel + '<br>'
                     + 'Model: ' + modelLabel,
                     {{sticky: true}}
@@ -985,9 +1026,9 @@ def _sim_layer_html(
                 candidates.forEach(function(s) {{
                     var key = s.lat.toFixed(4) + ',' + s.lon.toFixed(4);
                     var cur = byLoc[key];
-                    var sProb = s.forecast_prob !== null && s.forecast_prob !== undefined ? s.forecast_prob : -1;
-                    var cProb = cur && cur.forecast_prob !== null && cur.forecast_prob !== undefined ? cur.forecast_prob : -1;
-                    if (!cur || sProb > cProb) byLoc[key] = s;
+                    // Most severe colour band wins (bands mix probability and
+                    // ratio scales, so raw probabilities aren't comparable).
+                    if (!cur || _level(s.id, s.forecast_prob) > _level(cur.id, cur.forecast_prob)) byLoc[key] = s;
                 }});
                 filtered = Object.values(byLoc);
             }} else {{
@@ -1033,15 +1074,8 @@ def _sim_layer_html(
         var _regionalLayer = L.geoJson(null, {{
             pointToLayer: function(feature, latlng) {{
                 var p = feature.properties.regional_prob;
-                var c = _simColors(p);
-                return L.circleMarker(latlng, {{
-                    radius: 7,
-                    fillColor: c.fill,
-                    color: c.stroke,
-                    weight: 3.5,
-                    opacity: 1,
-                    fillOpacity: p !== null && p !== undefined ? 0.78 : 0.15
-                }});
+                var c = _probColors(p);
+                return _haloCircle(latlng, c.fill, p !== null && p !== undefined ? 0.9 : 0.4, 2.5, null);
             }},
             onEachFeature: function(feature, layer) {{
                 var pr = feature.properties;
@@ -1207,7 +1241,11 @@ def create_avalanche_map(
         function(feature, latlng) {
             var p = feature.properties.forecast_prob;
             var fill, stroke;
-            if (p === null || p === undefined) {
+            if (window._stationColors && feature.properties.station_id) {
+                // Same band as the station layer (ratio for hierarchical stations).
+                var c = window._stationColors(feature.properties.station_id, p);
+                fill = c.fill; stroke = c.stroke;
+            } else if (p === null || p === undefined) {
                 fill = '#808080'; stroke = '#505050';
             } else if (p >= 0.80) {
                 fill = '#7b0000'; stroke = '#3d0000';
@@ -1220,9 +1258,12 @@ def create_avalanche_map(
             } else {
                 fill = '#2ca02c'; stroke = '#1a6b1a';
             }
+            // White halo polygon under the coloured one: visible on any base map.
             var svg = '<svg width="22" height="20" viewBox="0 0 22 20" xmlns="http://www.w3.org/2000/svg">'
-                + '<polygon points="11,1 21,19 1,19" fill="' + fill + '" stroke="' + stroke
-                + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+                + '<polygon points="11,1 21,19 1,19" fill="none" stroke="#ffffff"'
+                + ' stroke-width="5" stroke-linejoin="round"/>'
+                + '<polygon points="11,1 21,19 1,19" fill="' + fill + '" stroke="#1b1b1b'
+                + '" stroke-width="1.8" stroke-linejoin="round"/></svg>';
             return L.marker(latlng, {
                 icon: L.divIcon({
                     html: svg, className: '',
@@ -1239,7 +1280,9 @@ def create_avalanche_map(
             if (p.date)         tip += '<br>Date: '   + p.date;
             if (p.aspect)       tip += '<br>Aspect: ' + p.aspect;
             if (p.forecast_prob !== null && p.forecast_prob !== undefined)
-                tip += '<br><b>Prob: ' + Math.round(p.forecast_prob * 100) + '%</b>';
+                tip += '<br>' + (window._stationSignal && p.station_id
+                    ? window._stationSignal(p.station_id, p.forecast_prob)
+                    : '<b>Prob: ' + Math.round(p.forecast_prob * 100) + '%</b>');
             layer.bindTooltip(tip, {sticky: true});
             layer.on('click', function() { if (p.url) window.open(p.url, '_blank'); });
         }
@@ -1364,23 +1407,24 @@ def create_avalanche_map(
         <span style="color:#555">Now: {now_str}</span><br>
         <span style="color:#555">Window: {win_start_str} – {win_end_str}</span><br>
         <hr style="margin:6px 0">
-        <b>Max probability in window</b><br>
-        <span style="color:#808080">&#9679;</span> No classifier<br>
-        <span style="color:#2ca02c">&#9679;</span> &lt; 33 %<br>
-        <span style="color:#e6c200">&#9679;</span> 33 – 50 %<br>
-        <span style="color:#ff7f0e">&#9679;</span> 50 – 65 %<br>
-        <span style="color:#d62728">&#9679;</span> 65 – 80 %<br>
-        <span style="color:#7b0000">&#9679;</span> &ge; 80 %
+        <b>Signal (max in window)</b><br>
+        <span style="color:#7b0000">&#9679;</span> Very high<br>
+        <span style="color:#d62728">&#9679;</span> High<br>
+        <span style="color:#ff7f0e">&#9679;</span> Moderate<br>
+        <span style="color:#e6c200">&#9679;</span> Low<br>
+        <span style="color:#2ca02c">&#9679;</span> Very low<br>
+        <span style="color:#808080">&#9679;</span> No forecast<br>
+        <span style="color:#555;font-size:11px">Hover a station for the number behind its level.</span>
         <hr style="margin:6px 0">
         <span id="obs-count" style="color:#555"></span>
         <hr style="margin:6px 0">
         <b>Simulation stations</b><br>
-        <span style="color:#555;font-size:11px">Ring colour &#8594; probability<br>
-        Solid fill &#8594; <b>Ready</b> (FA &le;10%)<br>
-        Faded fill &#8594; Marginal (FA 10–25%)<br>
-        Ghost fill &#8594; Not ready (FA &gt;25%)<br>
-        Dashed ring &#8594; <b>Hierarchical model</b> (provisional — blended failed the FA-rate bar)<br>
-        Dotted ring &#8594; Blended, fallback (hierarchical <i>also</i> failed its own known-event check)</span>
+        <span style="color:#555;font-size:11px">Fill colour &#8594; signal level<br>
+        Strong fill, thick outline &#8594; <b>Ready</b> (FA &le;10%)<br>
+        Medium fill &#8594; Marginal (FA 10–25%)<br>
+        Light fill, thin outline &#8594; Not ready (FA &gt;25%)<br>
+        Dashed outline &#8594; <b>Hierarchical model</b> (provisional)<br>
+        Dotted outline &#8594; Blended fallback (low confidence)</span>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
