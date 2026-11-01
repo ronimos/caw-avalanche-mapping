@@ -39,10 +39,21 @@ TRAIN_SEASON = "2024-2025"
 # chart for the case-study figure in the paper (docs/paper/figures/).
 CASE_STUDY_STATION = "160942_res"
 
-# Confidence tiers from §4.5 operational threshold analysis (FA rate at
-# recall-maximising threshold).  Used both in the map overlay and plot titles.
-READY_STATIONS    = frozenset({'160942_res', '153203_res', '180343_res', '164801_res'})
-MARGINAL_STATIONS = frozenset({'272401_res', '176522_res', '250224_res'})
+# Confidence-tier false-alarm-rate cutoffs (§4.5 operational threshold
+# analysis). Tiers themselves are computed live each run from
+# evaluation_operational.csv (see station_tier_map in main()) rather than
+# hand-maintained here, so they track each station's most recent FA rate as
+# it accumulates events across seasons.
+TIER_FA_READY    = 0.10  # FA <= this -> 'ready'
+TIER_FA_MARGINAL = 0.25  # FA <= this -> 'marginal'; above -> 'not_ready'
+
+# A station's hierarchical prediction on a real, held-out future event must
+# reach at least this fraction of the model's own average prediction on that
+# station's KNOWN training event(s) to count as "reliable" (see
+# _hier_known_event_ref / hier_reliable in main()) — otherwise the model
+# isn't generalizing there even by its own calibration, whatever its raw
+# number says, and the station falls back to blended regardless of tier.
+HIER_RELIABILITY_THRESHOLD = 0.5
 
 _ASPECT_SUFFIX = {'1': 'N', '2': 'E', '3': 'S', '4': 'W'}
 
@@ -52,12 +63,71 @@ def _station_aspect(stem: str) -> str:
     return _ASPECT_SUFFIX.get(numeric[-1:], 'Flat') if numeric else 'Flat'
 
 
-def _station_tier(stem: str) -> str:
-    if stem in READY_STATIONS:
-        return 'ready'
-    if stem in MARGINAL_STATIONS:
-        return 'marginal'
-    return 'not_ready'
+def _station_tier(stem: str, tier_map: dict[str, str]) -> str:
+    """Ready/marginal/not_ready from the live per-run false-alarm-rate
+    analysis. Stations with no operational threshold yet (too few events to
+    run the LOO sweep) default to 'not_ready'."""
+    return tier_map.get(stem, 'not_ready')
+
+
+def _hier_known_event_ref(
+    hmodel, station_id: str, train_daily: pd.DataFrame, train_event_dates: list,
+) -> float | None:
+    """
+    Average probability the hierarchical model itself assigns to a station's
+    own known TRAIN_SEASON avalanche day(s) — "what does a real event look
+    like here, according to this model." This is both:
+
+      - the normalization reference for that station's chart (a day is
+        reported as Nx this reference, not a raw percentage that isn't
+        comparable across stations or against the blended model's scale —
+        hierarchical numbers are shrunk toward the ~1-2% regional base rate
+        and so aren't meaningfully read as absolute percentages at all), and
+      - the reliability check below (hier_reliable in main()): a model whose
+        held-out prediction on an actual future event never approaches this
+        reference isn't generalizing for that station, whatever its raw
+        number says.
+
+    Returns None if the station has no known training events.
+    """
+    if not train_event_dates:
+        return None
+    mean_p, _ = hmodel.predict(station_id, train_daily)
+    preds = [
+        float(mean_p[d]) for d in (pd.Timestamp(x).normalize() for x in train_event_dates)
+        if d in mean_p.index and pd.notna(mean_p[d])
+    ]
+    return sum(preds) / len(preds) if preds else None
+
+
+def _hier_known_event_axis(
+    mean_series: pd.Series, lower_series: pd.Series, upper_series: pd.Series,
+    known_event_ref: float,
+) -> dict:
+    """
+    Normalizes a hierarchical model's probability (and its 95% CI) by
+    known_event_ref (see _hier_known_event_ref) so the chart reads "Nx a
+    known avalanche day" — 1.0 meaning as strong a signal as this station's
+    own confirmed history — instead of a raw percentage that means something
+    different at every station and isn't comparable to the blended model's
+    scale. Log-scaled: the ratio genuinely spans two-plus orders of
+    magnitude both across stations and within one station's season (observed
+    range so far: ~0.07x to ~33x).
+    """
+    return {
+        'prob_series': mean_series / known_event_ref,
+        'prob_lower':  lower_series / known_event_ref,
+        'prob_upper':  upper_series / known_event_ref,
+        'y_axis_type': 'log',
+        'y_range': [-2, 2],  # 0.01x-100x: comfortable margin over the observed 0.07x-33x
+        'y_tickformat': '',
+        'y_ticksuffix': 'x',
+        'y_axis_title': 'Relative to a known avalanche day',
+        'curve_hovertemplate': '%{y:.2f}x known event<extra></extra>',
+        'curve_fill': None,
+        'prob_bands': [],
+        'prob_thresholds': [(1.0, '#555555', 'Known event')],
+    }
 
 
 def _parse_args() -> argparse.Namespace:
@@ -696,12 +766,22 @@ def main() -> None:
             # station's coefficients shrink toward the regional mean by an amount
             # learned from its data. Posterior spread gives per-station uncertainty.
             hier_prob_dict: dict[str, pd.Series] = {}
+            # Per-station (lower, upper) 95% credible interval, keyed like
+            # hier_prob_dict — used to shade the chart when a station is
+            # switched over to the hierarchical model (see model_used below).
+            hier_ci_dict: dict[str, tuple[pd.Series, pd.Series]] = {}
+            # Per-station known-event reference and reliability flag (see
+            # _hier_known_event_ref / HIER_RELIABILITY_THRESHOLD) — hoisted out
+            # here, like the two dicts above, so they're defined even when
+            # --no-hierarchical or pymc is missing.
+            hier_known_event_ref: dict[str, float] = {}
+            hier_reliable: dict[str, bool] = {}
+            hmodel = None  # defined even when --no-hierarchical, so later code can check it safely
             if not args.no_hierarchical:
                 # Cached like the per-station/regional models: MCMC only runs on
                 # --retrain (or a cold cache), but predictions/evaluation refresh
                 # on every run.
                 hier_path = models_dir / "hierarchical.joblib"
-                hmodel = None
                 if not args.retrain and hier_path.exists():
                     hmodel = joblib.load(hier_path)
                     print(f"\n  → loaded hierarchical model ({hier_path.name})")
@@ -720,9 +800,30 @@ def main() -> None:
 
                 if hmodel is not None:
                     hier_std_rows: list[dict] = []
+                    # hier_known_event_ref / hier_reliable populated below — see
+                    # _hier_known_event_ref and HIER_RELIABILITY_THRESHOLD.
                     for sid, df in test_features.items():
                         mean_p, std_p = hmodel.predict(sid, df)
                         hier_prob_dict[sid] = mean_p
+                        _, lower_p, upper_p = hmodel.predict_interval(sid, df, ci=0.95)
+                        hier_ci_dict[sid] = (lower_p, upper_p)
+
+                        train_daily = train_features_dict.get(sid)
+                        ref = (
+                            _hier_known_event_ref(hmodel, sid, train_daily, station_train_dates.get(sid, []))
+                            if train_daily is not None else None
+                        )
+                        if ref is not None:
+                            hier_known_event_ref[sid] = ref
+                            signals = []
+                            for ed in station_test_dates.get(sid, []):
+                                ew = mean_p[(mean_p.index >= ed - pd.Timedelta(days=PRE_EVENT_WINDOW))
+                                            & (mean_p.index <= ed)].dropna()
+                                if not ew.empty:
+                                    signals.append(float(ew.max()))
+                            if signals:
+                                hier_reliable[sid] = (max(signals) / ref) >= HIER_RELIABILITY_THRESHOLD
+
                         # Forecast-window uncertainty summary (for map confidence)
                         win = std_p[(std_p.index >= win_start) & (std_p.index <= win_end)]
                         hier_std_rows.append({
@@ -733,7 +834,15 @@ def main() -> None:
                                        (mean_p.index <= win_end)].max()
                             ) if not mean_p.dropna().empty else float('nan'),
                             'std_window':       float(win.mean()) if not win.dropna().empty else float('nan'),
+                            'known_event_ref':  ref,
+                            'reliable':         hier_reliable.get(sid),
                         })
+
+                    if hier_reliable:
+                        n_bad = sum(not ok for ok in hier_reliable.values())
+                        print(f"  → hierarchical reliability: {n_bad}/{len(hier_reliable)} station(s) "
+                              f"scored below {HIER_RELIABILITY_THRESHOLD}x their own known-event "
+                              f"reference on a real 2025-26 event")
 
                     yt_h, ys_h = evaluate_event_level(
                         hier_prob_dict, station_2526_dates, 3
@@ -896,8 +1005,10 @@ def main() -> None:
             # Marker shape ('o' vs 'x') is redundant with color so the
             # detected/missed distinction survives grayscale printing and
             # red-green color blindness, not just the color channel.
+            # '#1b7837' (not the lighter '#2ca02c') keeps ≥3:1 contrast
+            # against white at this alpha (WCAG 1.4.11 non-text contrast).
             ax.scatter(x[detected],  ep[detected],
-                       color='#2ca02c', marker='o', s=90, alpha=0.8, zorder=3,
+                       color='#1b7837', marker='o', s=90, alpha=0.8, zorder=3,
                        label='Detected (prob ≥ 0.5)')
             ax.scatter(x[~detected], ep[~detected],
                        color='#d62728', marker='X', s=90, alpha=0.8, zorder=3,
@@ -915,8 +1026,10 @@ def main() -> None:
                            linewidth=1.5,
                            label=f'Median non-event prob ({non_event_ref:.3f})')
 
-            ax.axhline(0.5, color='grey', linestyle='--', linewidth=1.2,
-                       alpha=0.6, label='0.5 threshold')
+            # '#595959' at full opacity clears 3:1 against white; the old
+            # 'grey' at alpha=0.6 landed near 2:1 (WCAG 1.4.11 non-text contrast).
+            ax.axhline(0.5, color='#595959', linestyle='--', linewidth=1.2,
+                       label='0.5 threshold')
 
             # Fold counts per n_train
             for n, cnt in plot_df.groupby('n_train_events').size().items():
@@ -980,6 +1093,10 @@ def main() -> None:
     # --- Operational threshold analysis ---
     # For each station: set threshold = min(LOO event prob) = recall-maximizing.
     # Count non-event DAYS (not windows) above that threshold to measure false alarm rate.
+    # station_tier_map (ready/marginal/not_ready) is filled in below from this
+    # same analysis — defined here so it's always available even when the
+    # analysis is skipped (e.g. no stations with >=2 events yet).
+    station_tier_map: dict[str, str] = {}
     if loo_rows:
         loo_df_op = pd.DataFrame(loo_rows)
         trained   = loo_df_op[loo_df_op['trained'] & loo_df_op['event_prob'].notna()]
@@ -1032,6 +1149,19 @@ def main() -> None:
                 op_df = pd.DataFrame(op_rows).sort_values('false_alarm_rate').reset_index(drop=True)
                 op_df.to_csv(out_dir / "evaluation_operational.csv", index=False)
                 print(f"  → saved evaluation_operational.csv")
+
+                for _, _r in op_df.iterrows():
+                    if pd.isna(_r['false_alarm_rate']):
+                        continue
+                    station_tier_map[_r['station_id']] = (
+                        'ready' if _r['false_alarm_rate'] <= TIER_FA_READY
+                        else 'marginal' if _r['false_alarm_rate'] <= TIER_FA_MARGINAL
+                        else 'not_ready'
+                    )
+                print(f"  → confidence tiers: "
+                      f"{sum(t == 'ready' for t in station_tier_map.values())} ready, "
+                      f"{sum(t == 'marginal' for t in station_tier_map.values())} marginal, "
+                      f"{sum(t == 'not_ready' for t in station_tier_map.values())} not ready")
 
                 # ── Operational threshold figure ──────────────────────────────
                 def _tier_color(fa: float) -> str:
@@ -1179,8 +1309,44 @@ def main() -> None:
     # Update regional overlay with operational probs
     regional_prob_dict = op_reg_prob_dict
 
-    # Map-facing probability series and forecast-window values
-    prob_by_station: dict[str, pd.Series] = op_blended_dict
+    # --- Model switch ---
+    # Stations whose blended point estimate fails the operational false-alarm
+    # bar (station_tier_map != 'ready') hand off to the hierarchical model's
+    # mean instead: with only 1-2 logged events the per-station piece of the
+    # blend is fit on almost no positive examples and can spike on lookalike
+    # non-event days nearly as high as on the real one (see
+    # docs/presentation/), whereas the hierarchical model's regional shrinkage
+    # gave much better separation from those lookalikes for exactly these
+    # sparse stations. Ready stations, already validated at that bar, keep
+    # the sharper blended estimate.
+    #
+    # But hierarchical isn't automatically trustworthy just because blended
+    # failed: hier_reliable (see HIER_RELIABILITY_THRESHOLD) is a per-station
+    # check of whether the hierarchical model's own held-out prediction on a
+    # real 2025-26 event even reached a reasonable fraction of what it
+    # predicts on that station's KNOWN training event(s) — two stations
+    # (224101_res, 224102_res) fail this outright (0.07x-0.28x). For those we
+    # fall back to blended too, as the only model showing any skill there,
+    # but tag it 'blended_fallback' (not plain 'blended') so the map/chart can
+    # still flag the station as low-confidence overall rather than implying
+    # blended was validated the normal way.
+    model_used: dict[str, str] = {}
+    prob_by_station: dict[str, pd.Series] = {}
+    for _sid in set(op_blended_dict) | set(hier_prob_dict):
+        _tier = station_tier_map.get(_sid, 'not_ready')
+        _hier_ok = hier_reliable.get(_sid, True)  # benefit of the doubt if unchecked (no test event yet)
+        if _tier == 'ready' and _sid in op_blended_dict:
+            prob_by_station[_sid] = op_blended_dict[_sid]
+            model_used[_sid] = 'blended'
+        elif _sid in hier_prob_dict and _hier_ok:
+            prob_by_station[_sid] = hier_prob_dict[_sid]
+            model_used[_sid] = 'hierarchical'
+        elif _sid in op_blended_dict:
+            prob_by_station[_sid] = op_blended_dict[_sid]
+            model_used[_sid] = 'blended' if _hier_ok else 'blended_fallback'
+        else:
+            prob_by_station[_sid] = hier_prob_dict[_sid]
+            model_used[_sid] = 'hierarchical'
 
     # --- Generate stability plots (deferred so prob_by_station is available) ---
     if plot_queue:
@@ -1188,22 +1354,56 @@ def main() -> None:
         for item in plot_queue:
             sid = item['station_id']
             print(f"  Plotting {item['pro_file'].name}...")
+            sid_model = model_used.get(sid, 'blended')
+            prob_series = prob_by_station.get(sid)
+            prob_lower = prob_upper = None
+            prob_bands = prob_thresholds = y_tickvals = y_ticktext = None
+            y_axis_type, y_range = 'linear', [0, 1]
+            y_tickformat, y_ticksuffix = '.0%', ''
+            curve_hovertemplate, curve_fill = 'Prob: %{y:.1%}<extra></extra>', 'tozeroy'
+            y_axis_title = 'Probability'
+            right_margin = 140
+            known_ref = hier_known_event_ref.get(sid)
+            if sid_model == 'hierarchical' and prob_series is not None and known_ref is not None:
+                lower_s, upper_s = hier_ci_dict.get(sid, (None, None))
+                axis = _hier_known_event_axis(prob_series, lower_s, upper_s, known_ref)
+                prob_series          = axis['prob_series']
+                prob_lower           = axis['prob_lower']
+                prob_upper           = axis['prob_upper']
+                prob_bands           = axis['prob_bands']
+                prob_thresholds      = axis['prob_thresholds']
+                y_axis_type          = axis['y_axis_type']
+                y_range              = axis['y_range']
+                y_tickformat         = axis['y_tickformat']
+                y_ticksuffix         = axis['y_ticksuffix']
+                y_axis_title         = axis['y_axis_title']
+                curve_hovertemplate  = axis['curve_hovertemplate']
+                curve_fill           = axis['curve_fill']
+                right_margin         = 280
             plot_interactive_stability(
                 parse_snow_data(item['pro_file']),
                 item['out_path'],
                 sid,
                 event_dates=item['event_dates'],
                 test_dates=item['test_dates'],
-                prob_series=prob_by_station.get(sid),
+                prob_series=prob_series,
+                prob_lower=prob_lower, prob_upper=prob_upper,
+                prob_bands=prob_bands, prob_thresholds=prob_thresholds,
+                y_tickvals=y_tickvals, y_ticktext=y_ticktext, y_axis_title=y_axis_title,
+                y_axis_type=y_axis_type, y_range=y_range,
+                y_tickformat=y_tickformat, y_ticksuffix=y_ticksuffix,
+                curve_hovertemplate=curve_hovertemplate, curve_fill=curve_fill,
+                right_margin=right_margin,
                 daily_df=item['daily_df'],
                 forecast_date=item['forecast_date'],
                 aspect=_station_aspect(sid),
-                confidence_tier=_station_tier(sid),
+                confidence_tier=_station_tier(sid, station_tier_map),
+                model_used=sid_model,
                 png_path=(out_dir / f"fig4_stability_{CASE_STUDY_STATION.replace('_res', '')}.png"
                           if sid == CASE_STUDY_STATION else None),
                 png_rows=['prob'] if sid == CASE_STUDY_STATION else None,
             )
-            print(f"  → {item['out_path']}")
+            print(f"  → {item['out_path']}  (model: {sid_model})")
 
     def _window_max(sid: str | None) -> float:
         if sid is None or sid not in prob_by_station:
@@ -1234,15 +1434,27 @@ def main() -> None:
             win_reg = s_reg[(s_reg.index >= win_start) & (s_reg.index <= win_end)]
             v_reg   = float(win_reg.max()) if not win_reg.dropna().empty else None
             reg_prob = round(v_reg, 4) if v_reg is not None else None
+        # For a hierarchical-driven station, forecast_prob alone reads as a
+        # tiny, unalarming number (shrunk toward the ~1-2% regional base
+        # rate) — the same reason the chart itself is normalized (see
+        # _hier_known_event_axis). Carry the same ratio here so the map
+        # tooltip doesn't contradict the chart it links to.
+        known_ratio = None
+        if model_used.get(stem) == 'hierarchical' and prob is not None:
+            ref = hier_known_event_ref.get(stem)
+            if ref:
+                known_ratio = round(prob / ref, 3)
         sim_stations.append({
-            'id':               stem,
-            'lat':              lat,
-            'lon':              lon,
-            'aspect':           _station_aspect(stem),
-            'forecast_prob':    prob,
-            'confidence_tier':  _station_tier(stem),
-            'regional_prob':    reg_prob,
-            'url':              f"assets/{SEASON}/stability_{stem}.html",
+            'id':                stem,
+            'lat':               lat,
+            'lon':               lon,
+            'aspect':            _station_aspect(stem),
+            'forecast_prob':     prob,
+            'confidence_tier':   _station_tier(stem, station_tier_map),
+            'model_used':        model_used.get(stem, 'blended'),
+            'known_event_ratio': known_ratio,
+            'regional_prob':     reg_prob,
+            'url':               f"assets/{SEASON}/stability_{stem}.html",
         })
 
     # --- Generate the map ---

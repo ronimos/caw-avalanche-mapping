@@ -133,10 +133,27 @@ def plot_interactive_stability(
     event_dates: list[pd.Timestamp] | None = None,
     test_dates: list[pd.Timestamp] | None = None,
     prob_series: pd.Series | None = None,
+    prob_lower: pd.Series | None = None,
+    prob_upper: pd.Series | None = None,
+    ci_label: str = "95% credible interval",
+    peak_callout: tuple[pd.Timestamp, float, str] | None = None,
+    prob_bands: list[tuple[float, float, str]] | None = None,
+    prob_thresholds: list[tuple[float, str, str]] | None = None,
+    y_axis_type: str = 'linear',
+    y_range: list[float] | None = [0, 1],
+    y_tickformat: str = '.0%',
+    y_ticksuffix: str = '',
+    y_tickvals: list[float] | None = None,
+    y_ticktext: list[str] | None = None,
+    y_axis_title: str = 'Probability',
+    curve_hovertemplate: str = 'Prob: %{y:.1%}<extra></extra>',
+    curve_fill: str | None = 'tozeroy',
+    right_margin: int = 140,
     daily_df: pd.DataFrame | None = None,
     forecast_date: pd.Timestamp | None = None,
     aspect: str = "",
     confidence_tier: str = "",
+    model_used: str = "blended",
     png_path: Path | None = None,
     png_rows: list[str] | None = None,
 ) -> None:
@@ -145,12 +162,42 @@ def plot_interactive_stability(
 
     Panel 1 — Probability (top, requires prob_series): blended model daily
                avalanche probability for the current season, with threshold lines.
+               If prob_lower/prob_upper are also given, a shaded credible-interval
+               band is drawn behind the curve.
     Panel 2 — Snow stratigraphy: HS surface, dominant weak layers coloured by
                Sn38 (circle = upper zone, diamond = lower zone).
     Panel 3 — Loading (optional, requires daily_df): daily new snow (HN24) and
                air temperature (TA).
 
     Args:
+        prob_lower, prob_upper: Optional per-day interval bounds (e.g. from
+                  HierModel.predict_interval), same index as prob_series. Both
+                  must be given to draw the band.
+        peak_callout: Optional (x, y, text) label with an arrow pointing at a
+                  specific point on the probability curve — e.g. a "Peak: 34%"
+                  callout for a presentation slide comparing two model fits.
+        prob_bands, prob_thresholds: Override the default operational bands/lines
+                  (33/50/65/80%, calibrated to the blended model's scale). Pass
+                  these for a model whose probabilities live on a different scale
+                  (e.g. the hierarchical model, which shrinks toward the low
+                  regional base rate) so the shading doesn't imply a blended-model
+                  reading it doesn't have. prob_bands is [(y_lo, y_hi, fillcolor),
+                  ...]; prob_thresholds is [(value, color, label), ...].
+        y_axis_type, y_range, y_tickformat, y_ticksuffix, y_axis_title,
+        curve_hovertemplate, curve_fill: Override the probability panel's y-axis
+                  and curve rendering — e.g. for a relative-risk view, pass
+                  y_axis_type='log', y_range=None, y_tickformat='', ticksuffix='x',
+                  y_axis_title='Relative risk (x normal day)',
+                  curve_hovertemplate='%{y:.1f}x normal<extra></extra>',
+                  curve_fill=None (log axes can't fill to zero).
+        right_margin: Pixels reserved for the right-edge threshold labels.
+                  The default fits short labels like "80 %"; widen it for
+                  longer ones (e.g. "Elevated") so they aren't clipped.
+        y_tickvals, y_ticktext: Replace the numeric y-axis ticks with fixed
+                  labels at fixed positions (e.g. [0, 0.02, 0.12] / ["Normal",
+                  "Elevated", "Extreme"]) — for a model whose raw percentages
+                  aren't the point, this reads as a category scale instead of
+                  a number one. Both must be given together.
         png_path: When given, also renders a static PNG snapshot (e.g. for a
                   print figure) with the rangeslider widget hidden — the
                   rangeslider is an HTML-only interactive control and has no
@@ -182,6 +229,14 @@ def plot_interactive_stability(
             (prob_series.index >= x_min_raw) & (prob_series.index <= x_max_raw)
         ]
         has_prob = not prob_series.dropna().empty
+    has_ci = has_prob and prob_lower is not None and prob_upper is not None
+    if has_ci:
+        prob_lower = prob_lower[  # type: ignore[index]
+            (prob_lower.index >= x_min_raw) & (prob_lower.index <= x_max_raw)  # type: ignore[union-attr]
+        ]
+        prob_upper = prob_upper[  # type: ignore[index]
+            (prob_upper.index >= x_min_raw) & (prob_upper.index <= x_max_raw)  # type: ignore[union-attr]
+        ]
     if has_loading and daily_df is not None:
         daily_df = daily_df[
             (daily_df.index >= x_min_raw) & (daily_df.index <= x_max_raw)
@@ -355,7 +410,7 @@ def plot_interactive_stability(
             prob_clean = prob_series.dropna()
 
             # Coloured background zones as filled polygons (avoids axis-ref complexity)
-            bands = [
+            bands = prob_bands if prob_bands is not None else [
                 (0.80, 1.00, 'rgba(0,0,0,0.08)'),
                 (0.65, 0.80, 'rgba(200,50,50,0.10)'),
                 (0.50, 0.65, 'rgba(255,140,0,0.12)'),
@@ -370,18 +425,67 @@ def plot_interactive_stability(
                     showlegend=False, hoverinfo='skip',
                 ), row=prob_row, col=1)
 
+            # Credible-interval band (hierarchical model only) — drawn before the
+            # curve so the line stays legible on top of the shading. Built as a
+            # single closed polygon (upper edge forward, lower edge back) rather
+            # than a symmetric ±std ribbon, so it reflects the actual posterior
+            # quantiles and cannot cross [0, 1].
+            if has_ci and prob_lower is not None and prob_upper is not None:
+                ci_df = pd.DataFrame({'lo': prob_lower, 'hi': prob_upper}).dropna()
+                if not ci_df.empty:
+                    fig.add_trace(go.Scatter(
+                        x=list(ci_df.index) + list(ci_df.index[::-1]),
+                        y=list(ci_df['hi'].values) + list(ci_df['lo'].values[::-1]),
+                        fill='toself', fillcolor='rgba(51,51,51,0.18)',
+                        line=dict(width=0), mode='lines',
+                        name=ci_label, hoverinfo='skip',
+                    ), row=prob_row, col=1)
+
             # Probability curve
             fig.add_trace(go.Scatter(
                 x=prob_clean.index, y=prob_clean.values,
                 name="Avalanche Probability",
                 mode='lines',
                 line=dict(color='#333333', width=2),
-                fill='tozeroy', fillcolor='rgba(100,100,200,0.10)',
-                hovertemplate="Prob: %{y:.1%}<extra></extra>",
+                fill=curve_fill, fillcolor='rgba(100,100,200,0.10)',
+                hovertemplate=curve_hovertemplate,
             ), row=prob_row, col=1)
 
+            if peak_callout is not None:
+                cx, cy, ctext = peak_callout
+                # Kaleido (the static-PNG renderer) silently drops annotations
+                # placed with data-referenced y ('yref=y') on a log-scale axis —
+                # true with or without an arrow. The event/forecast labels above
+                # dodge this by using 'y domain' (paper-fraction) coordinates
+                # instead, so do the same here: convert cy into a domain
+                # fraction using the same y_range this panel was built with,
+                # rather than letting Plotly place it in data space.
+                if y_range is not None:
+                    y_lo, y_hi = y_range
+                    cy_scaled = math.log10(cy) if y_axis_type == 'log' else cy
+                    y_pos  = min(max((cy_scaled - y_lo) / (y_hi - y_lo), 0.0), 1.0) if y_hi != y_lo else 0.5
+                    # Capped well below the fixed 0.88/1.0 "test"/"now" labels
+                    # above, since a tall peak would otherwise push this box
+                    # (placed just above the point, yanchor='bottom') into them.
+                    y_pos  = min(y_pos, 0.65)
+                    y_pos_ref = 'y domain'
+                else:
+                    y_pos, y_pos_ref = cy, 'y'
+                fig.add_annotation(
+                    x=cx, y=y_pos, yref=y_pos_ref, text=ctext,
+                    showarrow=False, xanchor='center', yanchor='bottom',
+                    font=dict(color='#111111', size=PLOTLY_ANNOT_SIZE + 2),
+                    bgcolor='rgba(255,255,255,0.85)', bordercolor='#111111',
+                    borderwidth=1, borderpad=4,
+                    row=prob_row, col=1,
+                )
+
             # Threshold lines + labels as traces (avoids axis-ref issues)
-            for threshold, colour in _PROB_THRESHOLDS:
+            thresholds = (
+                prob_thresholds if prob_thresholds is not None
+                else [(t, c, f"{int(t * 100)} %") for t, c in _PROB_THRESHOLDS]
+            )
+            for threshold, colour, label in thresholds:
                 fig.add_trace(go.Scatter(
                     x=[x_min, x_max], y=[threshold, threshold],
                     mode='lines', showlegend=False, hoverinfo='skip',
@@ -389,17 +493,25 @@ def plot_interactive_stability(
                 ), row=prob_row, col=1)
                 fig.add_annotation(
                     x=x_max, y=threshold,
-                    text=f"  {int(threshold * 100)} %",
+                    text=f"  {label}",
                     showarrow=False, xanchor='left',
                     font=dict(color=colour, size=PLOTLY_ANNOT_SIZE),
                     row=prob_row, col=1,
                 )
 
-            fig.update_yaxes(
-                title_text="Probability", title_font=dict(size=PLOTLY_LABEL_SIZE),
-                tickformat='.0%',
-                range=[0, 1], row=prob_row, col=1,
-            )
+            if y_tickvals is not None and y_ticktext is not None:
+                fig.update_yaxes(
+                    title_text=y_axis_title, title_font=dict(size=PLOTLY_LABEL_SIZE),
+                    type=y_axis_type, tickmode='array',
+                    tickvals=y_tickvals, ticktext=y_ticktext,
+                    range=y_range, row=prob_row, col=1,
+                )
+            else:
+                fig.update_yaxes(
+                    title_text=y_axis_title, title_font=dict(size=PLOTLY_LABEL_SIZE),
+                    type=y_axis_type, tickformat=y_tickformat, ticksuffix=y_ticksuffix,
+                    range=y_range, row=prob_row, col=1,
+                )
 
         # ── Train event markers (red) ──────────────────────────────────────────
         for edate in (event_dates or []):
@@ -429,13 +541,6 @@ def plot_interactive_stability(
                     line=dict(color='royalblue', width=1.5, dash='dot'),
                     row=r, col=1,
                 )
-            fig.add_annotation(
-                x=edate, y=0.88, yref='y domain',
-                text=edate.strftime('%b %d') + ' (test)',
-                showarrow=False, xanchor='left',
-                font=dict(color='royalblue', size=PLOTLY_ANNOT_SIZE),
-                row=label_row, col=1,
-            )
 
         # ── Forecast window highlight ──────────────────────────────────────────
         if forecast_date is not None:
@@ -459,13 +564,6 @@ def plot_interactive_stability(
                     line=dict(color='rgba(40,150,80,0.80)', width=1.5, dash='dash'),
                     row=r, col=1,
                 )
-            fig.add_annotation(
-                x=forecast_date, y=1, yref='y domain',
-                text=f"  {forecast_date.strftime('%b %d')} (now)",
-                showarrow=False, xanchor='left',
-                font=dict(color='rgb(40,150,80)', size=PLOTLY_ANNOT_SIZE),
-                row=label_row, col=1,
-            )
 
         # ── Layout ──────────────────────────────────────────────────────────────
         if strat_row is not None:
@@ -492,6 +590,10 @@ def plot_interactive_stability(
                 title_parts.append(f"Aspect: {aspect}")
             if tier_label:
                 title_parts.append(f"Confidence: {tier_label}")
+            title_parts.append({
+                'hierarchical':      "Model: Hierarchical (provisional)",
+                'blended_fallback':  "Model: Blended (fallback — low confidence)",
+            }.get(model_used, "Model: Blended"))
             title_text = "  |  ".join(title_parts)
 
         fig.update_layout(
@@ -505,7 +607,7 @@ def plot_interactive_stability(
             **{slider_key: True, slider_key.replace("visible", "thickness"): 0.04},
             legend=dict(orientation='h', y=-0.08, font=dict(size=PLOTLY_LEGEND_SIZE)),
             bargap=0.15,
-            margin=dict(r=140),
+            margin=dict(r=right_margin),
         )
         # Enforce range on every x-axis in the figure (shared axes get their own key)
         fig.update_xaxes(range=[x_min, x_max], autorange=False,
@@ -618,7 +720,9 @@ def _sim_layer_html(
 
     Each entry in `stations` must have keys:
         id, lat, lon, aspect, forecast_prob (float|None),
-        confidence_tier ('ready' | 'marginal' | 'not_ready')
+        confidence_tier ('ready' | 'marginal' | 'not_ready'),
+        model_used ('blended' | 'hierarchical' — which model's probability
+        forecast_prob actually is; drawn as a dashed ring when 'hierarchical')
 
     prob_series_json: JSON-serialised dict  {station_id: {"YYYY-MM-DD": prob, ...}}
         used to recolour _simLayer as the time player scrubs through dates.
@@ -682,6 +786,16 @@ def _sim_layer_html(
                 // Ring weight also varies by tier for a redundant confidence cue.
                 var fillOp = tier === 'ready' ? 0.82 : tier === 'marginal' ? 0.42 : 0.12;
                 var weight = tier === 'ready' ? 3.5  : tier === 'marginal' ? 2.5  : 1.5;
+                // Ring dash pattern flags which model this station's number
+                // comes from: dashed = hierarchical (provisional — blended
+                // failed the FA-rate bar); dotted = blended kept only as a
+                // last resort because hierarchical ALSO failed its own
+                // known-event reliability check (see HIER_RELIABILITY_THRESHOLD
+                // in main.py) — lower confidence than either model alone.
+                var modelUsed = feature.properties.model_used;
+                var dash = modelUsed === 'hierarchical' ? '3,3'
+                    : modelUsed === 'blended_fallback' ? '1,3'
+                    : null;
                 return L.circleMarker(latlng, {{
                     radius:      7,
                     fillColor:   c.fill,
@@ -689,6 +803,7 @@ def _sim_layer_html(
                     color:       c.fill,
                     weight:      weight,
                     opacity:     1,
+                    dashArray:   dash,
                 }});
             }},
             onEachFeature: function(feature, layer) {{
@@ -703,11 +818,26 @@ def _sim_layer_html(
                         : (pr.forecast_prob !== null && pr.forecast_prob !== undefined)
                             ? 'Not ready (FA &gt;25%)'
                             : 'No data';
+                var modelLabel = pr.model_used === 'hierarchical'
+                    ? 'Hierarchical <i>(provisional)</i>'
+                    : pr.model_used === 'blended_fallback'
+                        ? 'Blended <i>(fallback — low confidence)</i>'
+                        : 'Blended';
+                // Hierarchical's raw probability is shrunk toward the ~1-2%
+                // regional base rate and reads as an unalarming small number
+                // on its own — show it relative to this station's own known
+                // avalanche day instead, matching the chart it links to.
+                var probLine = 'Prob: <b>' + probStr + '</b>';
+                if (pr.model_used === 'hierarchical' && pr.known_event_ratio !== null
+                        && pr.known_event_ratio !== undefined) {{
+                    probLine += ' (' + pr.known_event_ratio.toFixed(1) + 'x a known avalanche day)';
+                }}
                 layer.bindTooltip(
                     '<b>' + pr.id.replace('_res','') + '</b><br>'
                     + 'Aspect: ' + pr.aspect + '<br>'
-                    + 'Prob: <b>' + probStr + '</b><br>'
-                    + 'Confidence: ' + tierLabel,
+                    + probLine + '<br>'
+                    + 'Confidence: ' + tierLabel + '<br>'
+                    + 'Model: ' + modelLabel,
                     {{sticky: true}}
                 );
                 layer.on('click', function() {{
@@ -776,7 +906,9 @@ def _sim_layer_html(
                 var prob = s.forecast_prob;
                 if (probOverride !== null && s.id in probOverride) prob = probOverride[s.id];
                 return {{id:s.id, lat:s.lat, lon:s.lon, aspect:s.aspect,
-                         forecast_prob:prob, confidence_tier:s.confidence_tier, url:s.url}};
+                         forecast_prob:prob, confidence_tier:s.confidence_tier,
+                         model_used:s.model_used, known_event_ratio:s.known_event_ratio,
+                         url:s.url}};
             }});
 
             var filtered;
@@ -799,7 +931,9 @@ def _sim_layer_html(
                 return {{type:'Feature',
                          geometry:{{type:'Point', coordinates:[s.lon, s.lat]}},
                          properties:{{id:s.id, aspect:s.aspect, forecast_prob:s.forecast_prob,
-                                      confidence_tier:s.confidence_tier, url:s.url}}}};
+                                      confidence_tier:s.confidence_tier,
+                                      model_used:s.model_used, known_event_ratio:s.known_event_ratio,
+                                      url:s.url}}}};
             }});
             _simLayer.addData({{type:'FeatureCollection', features:features}});
         }}
@@ -943,6 +1077,14 @@ def create_avalanche_map(
         tiles='https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
         attr='OpenTopoMap',
         name='Topographic',
+    ).add_to(m)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
+        attr='Tiles &copy; Esri &mdash; National Geographic, Esri, DeLorme, '
+             'NAVTEQ, UNEP-WCMC, USGS, NASA, ESA, METI, NRCAN, GEBCO, NOAA, iPC',
+        name='Nat Geo Topo',
+        max_zoom=19,
+        max_native_zoom=16,
     ).add_to(m)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -1165,7 +1307,9 @@ def create_avalanche_map(
         <span style="color:#555;font-size:11px">Ring colour &#8594; probability<br>
         Solid fill &#8594; <b>Ready</b> (FA &le;10%)<br>
         Faded fill &#8594; Marginal (FA 10–25%)<br>
-        Ghost fill &#8594; Not ready (FA &gt;25%)</span>
+        Ghost fill &#8594; Not ready (FA &gt;25%)<br>
+        Dashed ring &#8594; <b>Hierarchical model</b> (provisional — blended failed the FA-rate bar)<br>
+        Dotted ring &#8594; Blended, fallback (hierarchical <i>also</i> failed its own known-event check)</span>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -1227,15 +1371,24 @@ def create_avalanche_map(
 
 
 # Six-level probability color scale, matching the JS point_to_layer /
-# _sim_layer_html scales used by the interactive map above.
+# _sim_layer_html scales used by the interactive map above. The size column
+# (matplotlib scatter `s`, matched-station marker) makes probability a
+# redundant color+size cue in the static map, not color alone (WCAG 1.4.1) —
+# readers with color-vision deficiency can still rank markers by size.
+# Sizes are an area (`s`), so on-page diameter goes as sqrt(s); the values
+# below step the rendered diameter by a constant ~3 pt per tier (8, 11, 14,
+# 17, 20 pt) so adjacent tiers stay visually distinct even where the warm
+# hues (orange/gold/red) sit close together for color-vision-deficient or
+# grayscale readers.
 _MAP_PROB_COLORS = [
-    (0.80, '#7b0000', '≥ 80 %'),
-    (0.65, '#d62728', '65 – 80 %'),
-    (0.50, '#ff7f0e', '50 – 65 %'),
-    (0.33, '#e6c200', '33 – 50 %'),
-    (0.00, '#2ca02c', '< 33 %'),
+    (0.80, '#7b0000', '≥ 80 %', 400),
+    (0.65, '#d62728', '65 – 80 %', 289),
+    (0.50, '#ff7f0e', '50 – 65 %', 196),
+    (0.33, '#e6c200', '33 – 50 %', 121),
+    (0.00, '#2ca02c', '< 33 %', 64),
 ]
 _MAP_PROB_NO_CLASSIFIER = '#808080'
+_MAP_PROB_NO_CLASSIFIER_SIZE = 64  # smallest tier — unranked, not "low probability"
 
 # Admin-0 country polygons for the study region (Natural Earth 1:50m,
 # trimmed to Central/South Asia), bundled locally so the study-area map
@@ -1249,10 +1402,20 @@ _country_borders_cache: list[dict] | None = None
 def _map_prob_color(p: float | None) -> str:
     if p is None or (isinstance(p, float) and math.isnan(p)):
         return _MAP_PROB_NO_CLASSIFIER
-    for threshold, color, _ in _MAP_PROB_COLORS:
+    for threshold, color, _, _ in _MAP_PROB_COLORS:
         if p >= threshold:
             return color
     return _MAP_PROB_COLORS[-1][1]
+
+
+def _map_prob_size(p: float | None) -> int:
+    """Matched-marker scatter size for probability p, same tiers as _map_prob_color."""
+    if p is None or (isinstance(p, float) and math.isnan(p)):
+        return _MAP_PROB_NO_CLASSIFIER_SIZE
+    for threshold, _, _, size in _MAP_PROB_COLORS:
+        if p >= threshold:
+            return size
+    return _MAP_PROB_COLORS[-1][3]
 
 
 def _load_country_borders() -> list[dict]:
@@ -1392,10 +1555,11 @@ def plot_static_map(
 
     for s in sim_stations:
         color   = _map_prob_color(s.get('forecast_prob'))
+        size    = _map_prob_size(s.get('forecast_prob'))
         matched = s['id'] in matched_stations
         ax.scatter(
             s['lon'], s['lat'],
-            s=150 if matched else 90, marker='o',
+            s=size if matched else round(size * 0.6), marker='o',
             facecolor=color, edgecolor='white',
             linewidth=1.4 if matched else 0.9,
             alpha=1.0 if matched else 0.55, zorder=3,
@@ -1405,8 +1569,9 @@ def plot_static_map(
     obs_day = df[df['date'] == day_str]
     for _, row in obs_day.iterrows():
         color = _map_prob_color(row.get('forecast_prob'))
+        size  = _map_prob_size(row.get('forecast_prob')) + 40  # triangles read larger than circles
         ax.scatter(
-            row['Longitude'], row['Latitude'], s=190, marker='^',
+            row['Longitude'], row['Latitude'], s=size, marker='^',
             facecolor=color, edgecolor='black', linewidth=1.3, zorder=4,
         )
 
@@ -1441,13 +1606,18 @@ def plot_static_map(
     _draw_country_borders(ax, extent=(xlim[0], xlim[1], ylim[0], ylim[1]),
                            avoid_points=list(zip(lons, lats)))
 
+    # Line2D markersize is a diameter, scatter's `s` is an area — rescale by
+    # sqrt so the legend swatches shrink/grow in the same visual proportion
+    # as the plotted markers do (keeps size a legible, not just decorative,
+    # cue for the same probability tiers as color).
     prob_handles = [
         Line2D([0], [0], marker='o', linestyle='', markerfacecolor=color,
-               markeredgecolor='#333333', markersize=9, label=label)
-        for _, color, label in _MAP_PROB_COLORS
+               markeredgecolor='#333333', markersize=(size ** 0.5) * 0.86, label=label)
+        for _, color, label, size in _MAP_PROB_COLORS
     ] + [
         Line2D([0], [0], marker='o', linestyle='', markerfacecolor=_MAP_PROB_NO_CLASSIFIER,
-               markeredgecolor='#333333', markersize=9, label='No classifier'),
+               markeredgecolor='#333333',
+               markersize=(_MAP_PROB_NO_CLASSIFIER_SIZE ** 0.5) * 0.86, label='No classifier'),
     ]
     shape_handles = [
         Line2D([0], [0], marker='o', linestyle='', markerfacecolor='white',

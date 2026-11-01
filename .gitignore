@@ -14,7 +14,7 @@ wheels/
 
 # Generated output
 plots/
-outpts/
+output/
 *.csv
 
 # Cached DEM tiles and path atlas (regenerate with terrain.build_path_atlas)

@@ -95,14 +95,14 @@ class HierModel:
         xs = self.terrain_scaler.transform(x)[0]                          # (Ft,)
         return mu_a + xs @ gamma                                          # (N,)
 
-    def predict(self, station_id: str, daily_df: pd.DataFrame,
-                terrain: dict | None = None) -> tuple[pd.Series, pd.Series]:
+    def _predict_draws(self, station_id: str, daily_df: pd.DataFrame,
+                        terrain: dict | None = None) -> tuple[np.ndarray, pd.Series]:
         """
-        Predict daily avalanche probability for one station.
+        Per-draw posterior probability, shared by predict() and predict_interval().
 
-        Returns (mean_prob, std_prob) Series indexed like daily_df.  std_prob is
-        the posterior standard deviation of the probability — a direct measure of
-        model confidence at that station/day.
+        Returns (p, valid): p is the (T, N) array of posterior probability draws
+        (T days × N posterior samples); valid is a bool Series flagging days with
+        the core features needed to predict at all.
 
         Stations absent from training use the population-level (regional) prior;
         if a `terrain` dict is supplied, the intercept is shifted by the learned
@@ -145,12 +145,55 @@ class HierModel:
                 logit = logit + Xi @ theta                                     # (T, N)
 
         p = 1.0 / (1.0 + np.exp(-logit))                  # (T, N)
+        return p, valid
+
+    def predict(self, station_id: str, daily_df: pd.DataFrame,
+                terrain: dict | None = None) -> tuple[pd.Series, pd.Series]:
+        """
+        Predict daily avalanche probability for one station.
+
+        Returns (mean_prob, std_prob) Series indexed like daily_df.  std_prob is
+        the posterior standard deviation of the probability — a direct measure of
+        model confidence at that station/day.
+
+        Stations absent from training use the population-level (regional) prior;
+        if a `terrain` dict is supplied, the intercept is shifted by the learned
+        terrain effect, so path geometry transfers to unseen/unproven stations.
+        """
+        p, valid = self._predict_draws(station_id, daily_df, terrain)
 
         mean_p = pd.Series(p.mean(axis=1), index=daily_df.index, name='avalanche_prob')
         std_p  = pd.Series(p.std(axis=1),  index=daily_df.index, name='avalanche_prob_std')
         mean_p[~valid] = np.nan
         std_p[~valid]  = np.nan
         return mean_p, std_p
+
+    def predict_interval(
+        self, station_id: str, daily_df: pd.DataFrame,
+        terrain: dict | None = None, ci: float = 0.95,
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
+        """
+        Predict daily avalanche probability with an equal-tailed posterior
+        credible interval.
+
+        Returns (mean_prob, lower, upper) Series indexed like daily_df, where
+        [lower, upper] is the `ci` central posterior interval (2.5th/97.5th
+        percentiles of the per-draw probability at ci=0.95) — an empirical
+        quantile of the posterior, not a symmetric mean ± std approximation, so
+        it stays inside [0, 1] and can be asymmetric near either bound.
+        """
+        p, valid = self._predict_draws(station_id, daily_df, terrain)
+
+        tail = (1.0 - ci) / 2.0
+        lo, hi = np.quantile(p, [tail, 1.0 - tail], axis=1)
+
+        mean_p = pd.Series(p.mean(axis=1), index=daily_df.index, name='avalanche_prob')
+        lower  = pd.Series(lo, index=daily_df.index, name='avalanche_prob_lower')
+        upper  = pd.Series(hi, index=daily_df.index, name='avalanche_prob_upper')
+        mean_p[~valid] = np.nan
+        lower[~valid]  = np.nan
+        upper[~valid]  = np.nan
+        return mean_p, lower, upper
 
 
 def train_hierarchical(
