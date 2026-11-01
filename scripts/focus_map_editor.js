@@ -73,7 +73,10 @@ window.addEventListener('load', function () {
     #mle section { padding:8px 10px; border-top:1px solid #e0e0e0; }
     #mle h4 { margin:0 0 4px; font-size:13px; }
     #mle .muted { color:#666; font-size:12px; }
-    #mle .row { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0; }
+    /* not .row: Folium loads Bootstrap, whose .row > * forces every child to 100% width */
+    #mle .mle-row { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0; }
+    #mle .mle-row > input { flex:1; min-width:0; }
+    #mle .hint { background:#e3f2fd; border-radius:4px; padding:6px 8px; }
     #mle button { font:inherit; font-size:12px; padding:3px 8px; border:1px solid #999; border-radius:4px;
       background:#f5f5f5; color:#222; cursor:pointer; }
     #mle button.on { background:#263238; color:#fff; border-color:#263238; }
@@ -109,11 +112,11 @@ window.addEventListener('load', function () {
   panel.id = 'mle';
   panel.innerHTML = `
     <header><b>Model locations</b><span id="mle-count"></span></header>
-    <section><div class="row" style="flex-wrap:nowrap">
+    <section><div class="mle-row" style="flex-wrap:nowrap">
       <input id="mle-goto" type="text" placeholder="Search: WMP name, station, place, or lat, lon">
       <button id="mle-go">Go</button></div></section>
-    <section id="mle-edit"><span class="muted">Click a WMP point, a station, or anywhere on the
-      map to edit the nearest SNOWPACK station.</span></section>
+    <section id="mle-edit"><div class="hint"><b>To add or remove a location:</b> click a WMP point, a
+      station, or anywhere on the map (or search above). The nearest SNOWPACK station opens here.</div></section>
     <section><h4>Edits</h4>
       <div class="legend muted">
         <span><span class="mle-diamond" style="display:inline-block;transform:rotate(45deg) scale(.8)"></span> added</span>
@@ -121,7 +124,7 @@ window.addEventListener('load', function () {
         <span>dashed = not saved yet</span></div>
       <ul id="mle-list"></ul>
       <div id="mle-status" class="muted"></div>
-      <div class="row">
+      <div class="mle-row">
         <button id="mle-save" class="primary" disabled>Save</button>
         <button id="mle-dl">Download JSON</button>
         <button id="mle-imp">Import…</button>
@@ -193,11 +196,11 @@ window.addEventListener('load', function () {
       el('h4', {textContent: `Station ${id} · ${Math.round(s.elev)} m`}),
       el('div', {class: 'muted', textContent: status}),
       ...extra.map(t => el('div', {class: 'muted', textContent: t})),
-      el('div', {class: 'row'}, ...actBtns),
+      el('div', {class: 'mle-row'}, ...actBtns),
       el('div', {class: 'muted', textContent: 'Aspects'}),
-      el('div', {class: 'row'}, ...aspBtns),
+      el('div', {class: 'mle-row'}, ...aspBtns),
       note, result,
-      el('div', {class: 'row'}, save, undo));
+      el('div', {class: 'mle-row'}, save, undo));
     refresh();
   }
 
