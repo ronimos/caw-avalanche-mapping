@@ -1,0 +1,1214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document id="document">
+	<name>FOCUS Ava</name>
+	<gx:CascadingStyle kml:id="__managed_style_0B0FA4801441B358E078_normal">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=fbc02d&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>3.2</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+				<gx:displayMode>card</gx:displayMode>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<StyleMap id="__managed_style_0B0FA4801441B358E078">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#__managed_style_0B0FA4801441B358E078_normal</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#__managed_style_0B0FA4801441B358E078_highlight</styleUrl>
+		</Pair>
+	</StyleMap>
+	<gx:CascadingStyle kml:id="__managed_style_0B0FA4801441B358E078_highlight">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<scale>1.2</scale>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=fbc02d&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>4.8</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+				<gx:displayMode>card</gx:displayMode>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<gx:CascadingStyle kml:id="__managed_style_067221F49E41B352ECB4_highlight">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<scale>0.9</scale>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=00ff00&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+				<scale>0</scale>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>4.8</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<gx:CascadingStyle kml:id="__managed_style_067221F49E41B352ECB4_normal">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<scale>0.75</scale>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=00ff00&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+				<scale>0</scale>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>3.2</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<StyleMap id="__managed_style_067221F49E41B352ECB4">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#__managed_style_067221F49E41B352ECB4_normal</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#__managed_style_067221F49E41B352ECB4_highlight</styleUrl>
+		</Pair>
+	</StyleMap>
+	<gx:CascadingStyle kml:id="__managed_style_19944649EC41B350331E_highlight">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<scale>1.2</scale>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=1976d2&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>4.8</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<gx:CascadingStyle kml:id="__managed_style_19944649EC41B350331E_normal">
+		<styleUrl>https://earth.google.com/balloon_components/base/1.1.0.0/card_template.kml#main</styleUrl>
+		<Style>
+			<IconStyle>
+				<Icon>
+					<href>https://earth.google.com/earth/document/icon?color=1976d2&amp;id=2000&amp;scale=4</href>
+				</Icon>
+				<hotSpot x="64" y="128" xunits="pixels" yunits="insetPixels"/>
+			</IconStyle>
+			<LabelStyle>
+			</LabelStyle>
+			<LineStyle>
+				<color>ff2dc0fb</color>
+				<width>3.2</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>40ffffff</color>
+			</PolyStyle>
+			<BalloonStyle>
+			</BalloonStyle>
+		</Style>
+	</gx:CascadingStyle>
+	<StyleMap id="__managed_style_19944649EC41B350331E">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#__managed_style_19944649EC41B350331E_normal</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#__managed_style_19944649EC41B350331E_highlight</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Folder id="0022EB07AB41B350330F">
+		<name>WMP_KML.kmz</name>
+		<open>1</open>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Folder id="1E02DFC02641B350330F">
+			<name>WMP_KML</name>
+			<visibility>0</visibility>
+			<open>1</open>
+			<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+			<Placemark id="2A3F2E35B741B350330F">
+				<name>FA-Parabir</name>
+				<description><![CDATA[<div>Country:Afghanistan
+Province: Badakhshan
+District: Darwaz-e-Balla (Maimai)
+Sub District:  
+Village Name: Parabir
+AKDN Village ID: AF516752<br></div>]]></description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.148782,37.886278,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="35AAFF595541B350330F">
+				<name>FA-Ullarip</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Jorm
+Sub District:  
+Village Name: Ullarip
+AKDN Village ID: AF900155</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.89084200000001,36.828801,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="430315A98241B350330F">
+				<name>FA-Ners</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Wakhan
+Sub District:  
+Village Name: Ners
+AKDN Village ID: AF900158</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.30180900000001,36.986279,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="5BF9EEE1C241B350330F">
+				<name>FA-Aabgarch</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Wakhan
+Sub District:  
+Village Name: Aabgarch
+AKDN Village ID: AF900167</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.69499500000001,37.002008,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="6CBDA90ADE41B350330F">
+				<name>FA-Flakhmadek</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Zebak
+Sub District:  
+Village Name: Flakhmadek
+AKDN Village ID: AF900183</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.312738,36.453672,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="776E38F26741B350330F">
+				<name>FA-Arakht</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Shighnan
+Sub District:  
+Village Name: Arakht
+AKDN Village ID: AF900235</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.41249500000001,37.375972,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="8B9CF81BC141B350330F">
+				<name>FA-Gharanbala</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Ishkashem
+Sub District:  
+Village Name: Gharanbala
+AKDN Village ID: AF900237</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.43983799999999,37.212628,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="9B7DB202B341B350330F">
+				<name>FA-Pandara</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Shuhada
+Sub District:  
+Village Name: Pandara
+AKDN Village ID: AF900270</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.98360700000001,37.30314,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="A59E67DE0141B350330F">
+				<name>FA-Khinj</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Shighnan
+Sub District:  
+Village Name: Khinj
+AKDN Village ID: AF900278</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.98014000000001,37.541212,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="BFF678CED241B350330F">
+				<name>FA-Toot Darra</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Darayem
+Sub District:  
+Village Name: Toot Darra
+AKDN Village ID: AF900284</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.490403,36.871072,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="C6CEA72F6E41B350330F">
+				<name>FA-Wereezn</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Shighnan
+Sub District:  
+Village Name: Wereezn
+AKDN Village ID: AF900320</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.52181400000001,37.64548,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="D50445323241B350330F">
+				<name>FA-Panam</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Koran Wa Monjan
+Sub District:  
+Village Name: Panam
+AKDN Village ID: AF900339</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.84853699999999,35.839597,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="EAF1CC4EAA41B350330F">
+				<name>FA-Arkhy</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Yamgan
+Sub District:  
+Village Name: Arkhy
+AKDN Village ID: AF900351</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.99533599999999,36.533446,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="F3FC0B6A3C41B350330F">
+				<name>FA-Purtel</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Shaki
+Sub District:  
+Village Name: Purtel
+AKDN Village ID: AF900368</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.70725,38.32881,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="10BC770D17341B350330F">
+				<name>FA-Bedi Ashuk</name>
+				<description>Country:Afghanistan
+Province: Takhar
+District: Warsaj
+Sub District:  
+Village Name: Bedi Ashuk
+AKDN Village ID: AF900392</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.23802999999999,36.11949,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="114DE33241841B350330F">
+				<name>FA-Mahnaw</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Darwaz-e-Balla (Maimai)
+Sub District:  
+Village Name: Mahnaw
+AKDN Village ID: AF900486</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.129902,38.380524,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="122989B05C541B350330F">
+				<name>FA-Meyanadeh</name>
+				<description>Country:Afghanistan
+Province: Badakhshan
+District: Darwaz (Nusai)
+Sub District:  
+Village Name: Meyanadeh
+AKDN Village ID: AF900488</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>70.81550799999999,38.282146,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1395E90E55041B350330F">
+				<name>FP-Bang</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Bang
+AKDN Village ID: PK500002</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.77891,36.53562,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="142E3CB78F841B350330F">
+				<name>FP-Parsan</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Parsan
+AKDN Village ID: PK500016</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.85345,36.0487,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="15D17DD624C41B350330F">
+				<name>FP-Besti Arkari</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Besti Arkari
+AKDN Village ID: PK500135</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.58833,36.1635,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="163DF3F313141B350330F">
+				<name>FP-Birzeen</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Birzeen
+AKDN Village ID: PK500172</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.4575,35.9993,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1710BD0E73841B350330F">
+				<name>FP-Darkut</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Darkut
+AKDN Village ID: PK500178</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.45934,36.643825,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="18ED5C95B2A41B350330F">
+				<name>FP-Rabat Mukhi/afzalabad</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Rabat Mukhi/afzalabad
+AKDN Village ID: PK500318</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.6728,36.18961,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="19CBC0DB86A41B350330F">
+				<name>FP-Shershal</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Shershal
+AKDN Village ID: PK500333</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.76018999999999,36.04861,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1AB947FE67F41B350330F">
+				<name>FP-Sipokht</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Sipokht
+AKDN Village ID: PK500344</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.41428999999999,36.02761,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1B2D2138F4041B350330F">
+				<name>FP-Momi</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Momi
+AKDN Village ID: PK500627</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.7184,36.037,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1C2C3165CF941B350330F">
+				<name>FP-Postaki</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Postaki
+AKDN Village ID: PK500809</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.5412,35.9935,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1DB7B1CF9A941B350330F">
+				<name>FP-Begusht</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Begusht
+AKDN Village ID: PK500993</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.5324,35.9352,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1ECABDDE35941B350330F">
+				<name>FP-Yarkhun Lasht</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Yarkhun Lasht
+AKDN Village ID: PK501104</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.02155,36.79541,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="1FC6AB7733B41B350330F">
+				<name>FP-Madaklasht</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Drosh
+Village Name: Madaklasht
+AKDN Village ID: PK501669</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.0569,35.8005,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="20379998A5541B350330F">
+				<name>FP-Shimshal</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Hunza Nagar
+Sub District: Gojal
+Village Name: Shimshal
+AKDN Village ID: PK501803</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>75.31796,36.437243,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="217D340BB8E41B350330F">
+				<name>FP-Derani</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Derani
+AKDN Village ID: PK501920</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.035518,36.128487,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="22A91E53C2241B350330F">
+				<name>FP-Unich Dahar</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Torkhow
+Village Name: Unich Dahar
+AKDN Village ID: PK501948</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.364,36.455,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="231E7FE0D2441B350330F">
+				<name>FP-Parich</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Torkhow
+Village Name: Parich
+AKDN Village ID: PK501999</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.52643999999999,36.59382,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="24535564EA741B350330F">
+				<name>FP-Yakhdiz</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Yakhdiz
+AKDN Village ID: PK502005</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.485584,36.491836,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2579F64CDB541B350330F">
+				<name>FP-Sarghoz</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Sarghoz
+AKDN Village ID: PK502039</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.4723,36.2746,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="262C5FB53BD41B350330F">
+				<name>FP-Purkhot</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Torkhow
+Village Name: Purkhot
+AKDN Village ID: PK502085</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.56807999999999,36.51022,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="27DA8034FA941B350330F">
+				<name>FP-Phander</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Gupis
+Village Name: Phander
+AKDN Village ID: PK502223</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.9276,36.1702,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="28B436CD9B841B350330F">
+				<name>FP-Zhupu</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Zhupu
+AKDN Village ID: PK502251</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.89709000000001,36.59454,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="290830823FC41B350330F">
+				<name>FP-Zudkhun</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Hunza Nagar
+Sub District: Gojal
+Village Name: Zudkhun
+AKDN Village ID: PK502317</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.42547,36.82853,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2AD245F558941B350330F">
+				<name>FP-Sonoghor</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Sonoghor
+AKDN Village ID: PK502355</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.40652,36.27612,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2B1E8DB9D6941B350330F">
+				<name>FP-Ruah</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Torkhow
+Village Name: Ruah
+AKDN Village ID: PK502358</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.60334,36.68454,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2CCFD51025A41B350330F">
+				<name>FP-Washich</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Torkhow
+Village Name: Washich
+AKDN Village ID: PK502421</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.41820010000001,36.485584,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2D7EC3CB6A341B350330F">
+				<name>FP-Balim Laspur</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Balim Laspur
+AKDN Village ID: PK502520</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.4419,36.0647,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2EE2492958041B350330F">
+				<name>FP-Yarzrich</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Hunza Nagar
+Sub District: Gojal
+Village Name: Yarzrich
+AKDN Village ID: PK502565</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.72145500000001,36.733869,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="2F1056203EC41B350330F">
+				<name>FP-Persing</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mulkhow
+Village Name: Persing
+AKDN Village ID: PK502600</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.287001,36.42371,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="30BD1BA6C7D41B350330F">
+				<name>FP-Barsat</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Gupis
+Village Name: Barsat
+AKDN Village ID: PK502616</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.698661,36.163413,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3134A66215941B350330F">
+				<name>FP-Matramdan</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Ishkoman
+Village Name: Matramdan
+AKDN Village ID: PK502640</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.047866,36.660549,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="323E2C1E67841B350330F">
+				<name>FP-Shost</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Shost
+AKDN Village ID: PK502678</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>72.94015,36.75653,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="339545C8FC041B350330F">
+				<name>FP-Misgar</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Hunza Nagar
+Sub District: Gojal
+Village Name: Misgar
+AKDN Village ID: PK502956</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.757707,36.792272,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="34BDD07711C41B350330F">
+				<name>FP-Bar Nagar</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Hunza Nagar
+Sub District: Nagar-I
+Village Name: Bar Nagar
+AKDN Village ID: PK503007</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>74.28443300000001,36.38336,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3595BD60FE741B350330F">
+				<name>FP-Wakht</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Wakht
+AKDN Village ID: PK503404</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.51600000000001,35.985,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="368DD32F51841B350330F">
+				<name>FP-Immit</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Ishkoman
+Village Name: Immit
+AKDN Village ID: PK503745</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.901,36.501,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="371749E634841B350330F">
+				<name>FP-Kiyar</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Lotkoh
+Village Name: Kiyar
+AKDN Village ID: PK504361</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>71.85211,36.0991,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="38BA3074D3841B350330F">
+				<name>FP-Julijali</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Gupis
+Village Name: Julijali
+AKDN Village ID: PK504497</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.26142900000001,36.201177,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="39B2054CDCC41B350330F">
+				<name>FP-Rahimabad</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Gupis
+Village Name: Rahimabad
+AKDN Village ID: PK504526</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.28147,36.147926,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3AADDDCD56541B350330F">
+				<name>FP-Baltering Nazber</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Baltering Nazber
+AKDN Village ID: PK504547</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.275629,36.39797,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3B674E7B85D41B350330F">
+				<name>FP-Qurqulti</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Qurqulti
+AKDN Village ID: PK504569</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.45219,36.41536,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3C042A34DE841B350330F">
+				<name>FP-Noh</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Noh
+AKDN Village ID: PK504606</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.375956,36.306359,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3DD4F14877B41B350330F">
+				<name>FP-Wadinkot/Garamchashma</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Wadinkot/Garamchashma
+AKDN Village ID: PK504628</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.27119,36.81052,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3E78DA7371041B350330F">
+				<name>FP-Chikar Broghil</name>
+				<description>Country:Pakistan
+Province: Khyber Pakhtunkhwa
+District: Chitral
+Sub District: Mastuj
+Village Name: Chikar Broghil
+AKDN Village ID: PK504630</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.32021,36.80982,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="3FD6118723F41B350330F">
+				<name>FP-Dapis</name>
+				<description>Country:Pakistan
+Province: Gilgit Baltistan
+District: Ghizer
+Sub District: Yasin
+Village Name: Dapis
+AKDN Village ID: PK504704</description>
+				<styleUrl>#__managed_style_067221F49E41B352ECB4</styleUrl>
+				<Point>
+					<extrude>1</extrude>
+					<coordinates>73.29989,36.476007,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="0581697CDF41B35BE3D8">
+				<name>Wakhan, AF</name>
+				<LookAt>
+					<longitude>72.97110863825091</longitude>
+					<latitude>36.94667727474813</latitude>
+					<altitude>3533.377560579509</altitude>
+					<heading>0</heading>
+					<tilt>0</tilt>
+					<gx:fovy>34.99961584096682</gx:fovy>
+					<range>174980.5064354092</range>
+					<altitudeMode>absolute</altitudeMode>
+				</LookAt>
+				<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								72.64384635069356,37.04347678789773,0 72.62884161579198,36.8515529555714,0 73.3398395284479,36.84587093443593,0 73.34415997261154,37.0303806613743,0 72.64384635069356,37.04347678789773,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+		</Folder>
+	</Folder>
+	<Placemark id="085180694941B35643D7">
+		<name>FOCUS Avalanche Area</name>
+		<description><![CDATA[<div>Entire avalanche forecast area.<br></div>]]></description>
+		<LookAt>
+			<longitude>70.96769919738639</longitude>
+			<latitude>37.11616407091779</latitude>
+			<altitude>2797.570184497773</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>30</gx:fovy>
+			<range>2111332.062730193</range>
+			<altitudeMode>absolute</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Polygon>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						69.65443776717881,35.83584638301618,0 71.94988257121835,35.64281854163481,0 75.55234216480189,36.23700485407008,0 75.58573988454654,37.27080027027447,0 74.04068765592464,37.26620675704631,0 72.86879772270966,37.08566690152472,0 72.40917226825816,37.89304380629814,0 71.24904650443017,38.60393379941011,0 70.50956748485585,38.58373821527857,0 69.65443776717881,35.83584638301618,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+	<Placemark id="075168398141B358E06E">
+		<visibility>0</visibility>
+		<gx:mid>/m/02twk0</gx:mid>
+		<gx:fid>0x38d024c6166fc0d9:0x7e7ee4b94962e4da</gx:fid>
+		<LookAt>
+			<longitude>69.77240099999999</longitude>
+			<latitude>35.48941050000001</latitude>
+			<altitude>0</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>35</gx:fovy>
+			<range>151425.99320134</range>
+			<altitudeMode>relativeToGround</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_0B0FA4801441B358E078</styleUrl>
+		<Point>
+			<altitudeMode>relativeToGround</altitudeMode>
+			<coordinates>69.9550338,35.5025772,0</coordinates>
+		</Point>
+	</Placemark>
+	<Placemark id="03716B606541B359714C">
+		<name>Salang/Panjshir-New zone</name>
+		<LookAt>
+			<longitude>70.2973231198587</longitude>
+			<latitude>35.7538876233693</latitude>
+			<altitude>4325.061305761108</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>34.99961584096682</gx:fovy>
+			<range>465153.4057827294</range>
+			<altitudeMode>absolute</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Polygon>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						68.84533730318006,35.58772356411105,0 69.28338798452482,34.89376329632311,0 70.39325159243921,35.768817771812,0 68.84533730318006,35.58772356411105,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+	<Placemark id="037C682C7941B35B2E8C">
+		<name>Khorog, TJ</name>
+		<LookAt>
+			<longitude>72.65143884385292</longitude>
+			<latitude>37.12632981947947</latitude>
+			<altitude>4623.140987043819</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>34.99961584096682</gx:fovy>
+			<range>354872.9728974403</range>
+			<altitudeMode>absolute</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Polygon>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						71.23522603886606,37.06024564483932,0 71.55460021948323,37.01122265636915,0 71.85620195834679,37.70919225593659,0 71.43776439153174,37.72416219209197,0 71.23522603886606,37.06024564483932,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+	<Placemark id="098DC034E841B35DC8C8">
+		<name>Darwaz, AF</name>
+		<LookAt>
+			<longitude>70.60707804915027</longitude>
+			<latitude>38.05389959634472</latitude>
+			<altitude>3724.515501349983</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>34.99961584096682</gx:fovy>
+			<range>194851.5991123952</range>
+			<altitudeMode>absolute</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Polygon>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						70.58770381579895,38.25042314974678,0 71.15386670941,37.82850734843379,0 71.21324176182465,37.9549813442174,0 70.7496917147806,38.44222814116728,0 70.58770381579895,38.25042314974678,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+	<Placemark id="086421570841B35F9E34">
+		<name>Lower Chitral, PK</name>
+		<LookAt>
+			<longitude>71.95765254699887</longitude>
+			<latitude>36.24123815177694</latitude>
+			<altitude>3880.432918845272</altitude>
+			<heading>0</heading>
+			<tilt>0</tilt>
+			<gx:fovy>34.99961584096682</gx:fovy>
+			<range>264771.5202106163</range>
+			<altitudeMode>absolute</altitudeMode>
+		</LookAt>
+		<styleUrl>#__managed_style_19944649EC41B350331E</styleUrl>
+		<Polygon>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						72.1280375434428,35.83181687714931,0 71.75522638764805,36.27166763840794,0 71.29872780810277,36.05503166008052,0 71.93019176255758,35.65248580075794,0 72.1280375434428,35.83181687714931,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>
