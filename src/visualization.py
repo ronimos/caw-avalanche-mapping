@@ -9,6 +9,7 @@ Provides:
 
 import json
 import math
+from html import escape as html_escape
 from pathlib import Path
 
 import contextily as ctx
@@ -46,6 +47,13 @@ PLOTLY_LABEL_SIZE  = 38
 PLOTLY_TICK_SIZE   = 36
 PLOTLY_LEGEND_SIZE = 32
 PLOTLY_ANNOT_SIZE  = 32
+
+# Interactive (HTML) charts: sized for a browser window, not a printed page.
+WEB_TITLE_SIZE  = 15
+WEB_LABEL_SIZE  = 13
+WEB_TICK_SIZE   = 12
+WEB_LEGEND_SIZE = 12
+WEB_ANNOT_SIZE  = 12
 
 # Top fraction of snowpack (by burial depth) treated as the "upper zone".
 # Must match UPPER_ZONE_FRAC in classifier.py.
@@ -156,9 +164,13 @@ def plot_interactive_stability(
     model_used: str = "blended",
     png_path: Path | None = None,
     png_rows: list[str] | None = None,
+    viewer_url: str | None = None,
 ) -> None:
     """
     Generates an interactive Plotly HTML stability chart.
+
+    viewer_url: when given, a fixed "Open SNOWPACK viewer" button at the top
+                right links to it (the niViz view of the station's simulation).
 
     Panel 1 — Probability (top, requires prob_series): blended model daily
                avalanche probability for the current season, with threshold lines.
@@ -209,6 +221,10 @@ def plot_interactive_stability(
     """
     dominant = _get_dominant_layers(df)
     hs_ts    = df.groupby(df.index)['total_height'].first()
+    # Early season there may be no layer deep enough to keep (see
+    # parse_snow_data): draw the surface from the daily HS instead (m → cm).
+    if hs_ts.empty and daily_df is not None and 'HS' in daily_df.columns:
+        hs_ts = daily_df['HS'].dropna() * 100.0
 
     # Zone classification: upper = burial depth < UPPER_ZONE_FRAC * HS
     dominant = dominant.copy()
@@ -220,10 +236,16 @@ def plot_interactive_stability(
     has_prob    = prob_series is not None and not prob_series.dropna().empty
     has_loading = daily_df is not None and not daily_df.empty
 
-    # Pin the x-axis to the current-season .pro file date range so that no
-    # historical-season data from the combined prob_series or daily_df bleeds in.
-    x_min_raw = df.index.min()
-    x_max_raw = df.index.max()
+    # Pin the x-axis to the current-season date range so that no
+    # historical-season data from the combined prob_series bleeds in: the .pro
+    # layer dates, or the daily features when no layer qualifies yet.
+    span = df.index if not df.empty else (daily_df.index if daily_df is not None else pd.DatetimeIndex([]))
+    if len(span) == 0 and prob_series is not None:
+        span = prob_series.dropna().index
+    x_min_raw = span.min()
+    x_max_raw = span.max()
+    season_start = x_min_raw.year if x_min_raw.month >= 7 else x_min_raw.year - 1
+    season_label = f"{season_start}–{str(season_start + 1)[-2:]}"
     if has_prob and prob_series is not None:
         prob_series = prob_series[
             (prob_series.index >= x_min_raw) & (prob_series.index <= x_max_raw)
@@ -246,14 +268,23 @@ def plot_interactive_stability(
     x_min = x_min_raw
     x_max = x_max_raw
 
-    def _build(allowed: set[str] | None, include_title: bool = True) -> tuple[go.Figure, str, int]:
+    def _build(allowed: set[str] | None, include_title: bool = True,
+               for_print: bool = False) -> tuple[go.Figure, str, int]:
         """
         Builds the multi-panel figure, optionally restricted to `allowed` row keys.
+
+        for_print: use the PLOTLY_* print-figure font sizes; otherwise the
+                   smaller WEB_* sizes that fit a browser window.
 
         include_title: Panel titles and the overall station/aspect/confidence
                        title are HTML-only — the print figure relies on its
                        LaTeX caption instead, so it's built with no titles at all.
         """
+        fs = (dict(title=PLOTLY_TITLE_SIZE, label=PLOTLY_LABEL_SIZE, tick=PLOTLY_TICK_SIZE,
+                   legend=PLOTLY_LEGEND_SIZE, annot=PLOTLY_ANNOT_SIZE) if for_print else
+              dict(title=WEB_TITLE_SIZE, label=WEB_LABEL_SIZE, tick=WEB_TICK_SIZE,
+                   legend=WEB_LEGEND_SIZE, annot=WEB_ANNOT_SIZE))
+
         # ── Build subplot layout: prob on top, then strat, then loading ───────
         row_keys: list[str] = []
         if has_prob and (allowed is None or 'prob' in allowed):
@@ -274,7 +305,7 @@ def plot_interactive_stability(
             row_heights = [0.35, 0.40, 0.25]
 
         panel_titles = {
-            'prob':  "Avalanche Probability — 2025–26 Season",
+            'prob':  f"Avalanche Probability — {season_label} Season",
             'strat': "Snow Stratigraphy — Weak Layers by Height",
             'load':  "New Snow (HN24) & Air Temperature",
         }
@@ -283,7 +314,7 @@ def plot_interactive_stability(
             rows=n_rows, cols=1,
             specs=specs,
             shared_xaxes=True,
-            vertical_spacing=0.07,
+            vertical_spacing=0.07 if for_print else 0.09,
             subplot_titles=(tuple(panel_titles[k] for k in row_keys)
                              if include_title else None),
             row_heights=row_heights,
@@ -293,7 +324,7 @@ def plot_interactive_stability(
             # point, so this sizes just the panel titles (not the
             # event/forecast labels added further below).
             for ann in fig.layout.annotations:
-                ann.update(font=dict(size=PLOTLY_TITLE_SIZE))
+                ann.update(font=dict(size=fs['title']))
 
         strat_row = row_keys.index('strat') + 1 if 'strat' in row_keys else None
         load_row  = row_keys.index('load') + 1 if 'load' in row_keys else None
@@ -305,6 +336,7 @@ def plot_interactive_stability(
 
         # ── Panel: Stratigraphy ────────────────────────────────────────────────
         if strat_row is not None:
+            strat_dom = fig.get_subplot(strat_row, 1).yaxis.domain
             # Faint blue bands on rain days
             if has_loading and 'rain_sum' in daily_df.columns:  # type: ignore[union-attr]
                 for rday in daily_df[daily_df['rain_sum'] > 0].index:  # type: ignore[index]
@@ -332,6 +364,14 @@ def plot_interactive_stability(
                 hovertemplate="Zone split: %{y:.1f} cm<extra></extra>",
             ), row=strat_row, col=1)
 
+            if dominant.empty:
+                fig.add_annotation(
+                    text="No layers buried ≥ 20 cm yet", showarrow=False,
+                    x=0.5, y=0.5, xref='x domain', yref='y domain',
+                    font=dict(color='#777777', size=fs['annot']),
+                    row=strat_row, col=1,
+                )
+
             # Dominant layers: circle = upper zone, diamond = lower zone
             colorbar_shown = False
             for i, label in enumerate(sorted(dominant['layer_label'].unique())):
@@ -357,7 +397,11 @@ def plot_interactive_stability(
                             color=sub_z['sn38'],
                             colorscale='RdYlGn', cmin=1.0, cmax=6.0,
                             showscale=show_cb,
-                            colorbar=dict(title="Sn38", thickness=14, len=0.45, y=0.75),
+                            # Beside the stratigraphy panel only, so it can't
+                            # sit on the probability threshold labels.
+                            colorbar=dict(title="Sn38", thickness=14,
+                                          len=strat_dom[1] - strat_dom[0],
+                                          y=(strat_dom[0] + strat_dom[1]) / 2, yanchor='middle'),
                             line=dict(width=1.2, color=colour),
                         ),
                         customdata=sub_z[['burial_depth', 'sn38']].values,
@@ -396,12 +440,12 @@ def plot_interactive_stability(
                 ), row=load_row, col=1, secondary_y=True)
 
             fig.update_yaxes(
-                title_text="HN24 (m)", title_font=dict(size=PLOTLY_LABEL_SIZE),
+                title_text="HN24 (m)", title_font=dict(size=fs['label']),
                 rangemode='tozero',
                 row=load_row, col=1, secondary_y=False,
             )
             fig.update_yaxes(
-                title_text="TA (°C)", title_font=dict(size=PLOTLY_LABEL_SIZE),
+                title_text="TA (°C)", title_font=dict(size=fs['label']),
                 row=load_row, col=1, secondary_y=True,
             )
 
@@ -474,7 +518,7 @@ def plot_interactive_stability(
                 fig.add_annotation(
                     x=cx, y=y_pos, yref=y_pos_ref, text=ctext,
                     showarrow=False, xanchor='center', yanchor='bottom',
-                    font=dict(color='#111111', size=PLOTLY_ANNOT_SIZE + 2),
+                    font=dict(color='#111111', size=fs['annot'] + 2),
                     bgcolor='rgba(255,255,255,0.85)', bordercolor='#111111',
                     borderwidth=1, borderpad=4,
                     row=prob_row, col=1,
@@ -492,23 +536,24 @@ def plot_interactive_stability(
                     line=dict(color=colour, width=1.2, dash='dot'),
                 ), row=prob_row, col=1)
                 fig.add_annotation(
-                    x=x_max, y=threshold,
+                    # Annotations on a log axis take log10 of the value.
+                    x=x_max, y=math.log10(threshold) if y_axis_type == 'log' else threshold,
                     text=f"  {label}",
                     showarrow=False, xanchor='left',
-                    font=dict(color=colour, size=PLOTLY_ANNOT_SIZE),
+                    font=dict(color=colour, size=fs['annot']),
                     row=prob_row, col=1,
                 )
 
             if y_tickvals is not None and y_ticktext is not None:
                 fig.update_yaxes(
-                    title_text=y_axis_title, title_font=dict(size=PLOTLY_LABEL_SIZE),
+                    title_text=y_axis_title, title_font=dict(size=fs['label']),
                     type=y_axis_type, tickmode='array',
                     tickvals=y_tickvals, ticktext=y_ticktext,
                     range=y_range, row=prob_row, col=1,
                 )
             else:
                 fig.update_yaxes(
-                    title_text=y_axis_title, title_font=dict(size=PLOTLY_LABEL_SIZE),
+                    title_text=y_axis_title, title_font=dict(size=fs['label']),
                     type=y_axis_type, tickformat=y_tickformat, ticksuffix=y_ticksuffix,
                     range=y_range, row=prob_row, col=1,
                 )
@@ -527,7 +572,7 @@ def plot_interactive_stability(
                 x=edate, y=1, yref='y domain',
                 text=edate.strftime('%b %d'),
                 showarrow=False, xanchor='left',
-                font=dict(color='red', size=PLOTLY_ANNOT_SIZE),
+                font=dict(color='red', size=fs['annot']),
                 row=label_row, col=1,
             )
 
@@ -568,7 +613,7 @@ def plot_interactive_stability(
         # ── Layout ──────────────────────────────────────────────────────────────
         if strat_row is not None:
             fig.update_yaxes(title_text="Height from ground (cm)",
-                              title_font=dict(size=PLOTLY_LABEL_SIZE),
+                              title_font=dict(size=fs['label']),
                               row=strat_row, col=1)
 
         height = {1: 800, 2: 750, 3: 1000}.get(n_rows, 1000)
@@ -599,32 +644,44 @@ def plot_interactive_stability(
         fig.update_layout(
             height=height,
             title_text=title_text,
-            title_font=dict(size=PLOTLY_TITLE_SIZE),
+            title_font=dict(size=fs['title']),
             template="plotly_white",
             hovermode="x unified",
             xaxis_range=[x_min, x_max],
             xaxis_autorange=False,
             **{slider_key: True, slider_key.replace("visible", "thickness"): 0.04},
-            legend=dict(orientation='h', y=-0.08, font=dict(size=PLOTLY_LEGEND_SIZE)),
+            # Web: below the rangeslider rather than on top of it.
+            legend=dict(orientation='h', y=-0.08 if for_print else -0.14, yanchor='top',
+                        font=dict(size=fs['legend'])),
             bargap=0.15,
             margin=dict(r=right_margin),
         )
         # Enforce range on every x-axis in the figure (shared axes get their own key)
         fig.update_xaxes(range=[x_min, x_max], autorange=False,
-                          tickfont=dict(size=PLOTLY_TICK_SIZE))
-        fig.update_yaxes(tickfont=dict(size=PLOTLY_TICK_SIZE))
+                          tickfont=dict(size=fs['tick']))
+        fig.update_yaxes(tickfont=dict(size=fs['tick']))
 
         return fig, slider_key, height
 
     html_fig, html_slider_key, html_height = _build(None)
     # plotly.js from the CDN rather than embedded: ~4.6 MB less per chart.
-    html_fig.write_html(str(output_path), include_plotlyjs='cdn')
+    html = html_fig.to_html(full_html=True, include_plotlyjs='cdn')
+    if viewer_url:
+        button = (
+            f'<a href="{html_escape(viewer_url)}" target="_blank" rel="noopener" '
+            'style="position:fixed;top:10px;right:12px;z-index:10;padding:6px 12px;'
+            'background:#1565c0;color:#fff;border-radius:4px;text-decoration:none;'
+            'font:13px system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)">'
+            'Open SNOWPACK viewer ↗</a>'
+        )
+        html = html.replace('<body>', '<body>' + button, 1)
+    Path(output_path).write_text(html, encoding='utf-8')
 
     if png_path is not None:
         if png_rows is not None:
-            png_fig, png_slider_key, png_height = _build(set(png_rows), include_title=False)
+            png_fig, png_slider_key, png_height = _build(set(png_rows), include_title=False, for_print=True)
         else:
-            png_fig, png_slider_key, png_height = html_fig, html_slider_key, html_height
+            png_fig, png_slider_key, png_height = _build(None, for_print=True)
         png_fig.update_layout(**{png_slider_key: False})
         clean_fig = go.Figure(_sanitize_timestamps(png_fig.to_dict()))
         # Static export goes through kaleido, which (v1+) needs a Chrome

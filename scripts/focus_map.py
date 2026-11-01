@@ -145,6 +145,8 @@ def build_map(df: pd.DataFrame, run_stations: pd.DataFrame, season: str, run_dir
         "season":   season,
         "run_dir":  str(run_dir),
         "save_url": SAVE_PHP.name,
+        # niViz view of a station's simulation (snowpack-mapping's profiles.html)
+        "viewer_url": f"/nwp/caw/conditions/profiles.html?year={season[:4]}&id=",
         "stations": [[str(r.station), round(r.lat, 5), round(r.lon, 5), round(r.elevation)]
                      for r in run_stations.itertuples()],
         "baseline": {sid: list(g["point"]) for sid, g in df.groupby("station")},

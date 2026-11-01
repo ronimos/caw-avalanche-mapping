@@ -251,7 +251,8 @@ def run_forecast(args: argparse.Namespace) -> None:
         'forecast_date': forecast_date,
     } for sid in sorted(fc_daily)]
     _render_stability_plots(plot_queue, prob_by_station, model_used,
-                            hier_ref, hier_ci, tiers, regional_ref_ids=regional_ref_ids)
+                            hier_ref, hier_ci, tiers, regional_ref_ids=regional_ref_ids,
+                            viewer_year=FORECAST_SEASON[:4])
 
     sim_stations = _build_sim_stations(
         fc_dir, FORECAST_SEASON, prob_by_station, reg_prob, model_used,

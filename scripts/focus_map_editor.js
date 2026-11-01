@@ -76,6 +76,8 @@ window.addEventListener('load', function () {
     /* not .row: Folium loads Bootstrap, whose .row > * forces every child to 100% width */
     #mle .mle-row { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0; }
     #mle .mle-row > input { flex:1; min-width:0; }
+    #mle a.viewer { display:inline-block; margin:2px 0 4px; padding:3px 8px; border-radius:4px;
+      background:#1565c0; color:#fff; text-decoration:none; font-size:12px; }
     #mle .hint { background:#e3f2fd; border-radius:4px; padding:6px 8px; }
     #mle button { font:inherit; font-size:12px; padding:3px 8px; border:1px solid #999; border-radius:4px;
       background:#f5f5f5; color:#222; cursor:pointer; }
@@ -192,8 +194,11 @@ window.addEventListener('load', function () {
     };
     undo.onclick = () => { delete sel[id]; persist(); render(); openEditor(id, source); };
 
+    const viewer = D.viewer_url ? el('a', {href: D.viewer_url + encodeURIComponent(id), target: '_blank',
+      rel: 'noopener', textContent: 'Open SNOWPACK viewer ↗', className: 'viewer'}) : '';
     editBox.replaceChildren(
       el('h4', {textContent: `Station ${id} · ${Math.round(s.elev)} m`}),
+      viewer,
       el('div', {class: 'muted', textContent: status}),
       ...extra.map(t => el('div', {class: 'muted', textContent: t})),
       el('div', {class: 'mle-row'}, ...actBtns),

@@ -64,10 +64,27 @@ HIER_RELIABILITY_THRESHOLD = 0.5
 
 _ASPECT_SUFFIX = {'1': 'N', '2': 'E', '3': 'S', '4': 'W'}
 
+# Station ids are 5 digits; an aspect file appends one digit (1-4). Going by
+# length, not by the last digit: a flat file whose id ends in 1-4 (13874_res)
+# is not west-facing.
+STATION_ID_DIGITS = 5
+
+# niViz viewer of a station's simulation, all five aspects (from the
+# snowpack-mapping repo, served next to the CAW conditions map). It only has
+# .pro files for the current run, so charts link to it in forecast mode only.
+PROFILE_VIEWER_URL = "/nwp/caw/conditions/profiles.html?year={year}&id={station}"
+
+
+def _split_stem(stem: str) -> tuple[str, str]:
+    """'231581_res' → ('23158', 'N'); '13874_res' → ('13874', 'Flat')."""
+    numeric = stem.replace('_res', '')
+    if len(numeric) == STATION_ID_DIGITS + 1 and numeric[-1] in _ASPECT_SUFFIX:
+        return numeric[:-1], _ASPECT_SUFFIX[numeric[-1]]
+    return numeric, 'Flat'
+
 
 def _station_aspect(stem: str) -> str:
-    numeric = stem.replace('_res', '')
-    return _ASPECT_SUFFIX.get(numeric[-1:], 'Flat') if numeric else 'Flat'
+    return _split_stem(stem)[1]
 
 
 def _station_tier(stem: str, tier_map: dict[str, str]) -> str:
@@ -489,9 +506,11 @@ def _render_stability_plots(
     station_tier_map: dict[str, str],
     png_dir: Path | None = None,
     regional_ref_ids: set[str] = frozenset(),
+    viewer_year: str | None = None,
 ) -> None:
     """Write one interactive stability chart per plot_queue item. When png_dir
-    is given, CASE_STUDY_STATION also gets a static PNG of its probability row."""
+    is given, CASE_STUDY_STATION also gets a static PNG of its probability row.
+    viewer_year (season start year) adds an "Open SNOWPACK viewer" button."""
     if not plot_queue:
         return
     print(f"\nGenerating {len(plot_queue)} stability plots...")
@@ -529,7 +548,7 @@ def _render_stability_plots(
         plot_interactive_stability(
             parse_snow_data(item['pro_file']),
             item['out_path'],
-            sid,
+            _split_stem(sid)[0],  # title shows the station; the aspect has its own field
             event_dates=item['event_dates'],
             test_dates=item['test_dates'],
             prob_series=prob_series,
@@ -548,6 +567,8 @@ def _render_stability_plots(
             png_path=(png_dir / f"fig4_stability_{CASE_STUDY_STATION.replace('_res', '')}.png"
                       if is_case_study else None),
             png_rows=['prob'] if is_case_study else None,
+            viewer_url=(PROFILE_VIEWER_URL.format(year=viewer_year, station=_split_stem(sid)[0])
+                        if viewer_year else None),
         )
         print(f"  → {item['out_path']}  (model: {sid_model})")
 
