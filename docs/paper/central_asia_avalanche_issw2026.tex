@@ -35,7 +35,8 @@
 \tagpdfsetup{
   activate-all            = true,
   math/mathml/luamml/load = true,
-  math/alt/use            = true
+  math/alt/use            = true,
+  table/header-rows       = {1}
 }
 
 \addbibresource{references.bib}
@@ -54,8 +55,8 @@
 \newcommand{\dlwl}{\texttt{depth\_lower\_wl}}
 
 % ================= TITLE, AUTHOR==================================================
-\title{Forecasting Avalanches in Data-Sparse Central Asia Using \\
-Snowpack and Weather Modeling with Avalanche Observations}
+\title{FORECASTING AVALANCHES IN DATA-SPARSE CENTRAL ASIA USING \\
+SNOWPACK AND WEATHER MODELING WITH AVALANCHE OBSERVATIONS}
 
 \author[1]{Itai Sheleg\corref{complete\_address}}
 \author[2]{Doug Chabot}
@@ -78,6 +79,7 @@ email: itai.sheleg@gmail.com}
 % ===================================================================
 
 \begin{document}
+\pagestyle{empty}
 
 % ==================== ABSTRACT ===============================================
 \begin{abstract}
@@ -130,7 +132,7 @@ For this study, we pulled SNOWPACK output from 30 virtual stations that turned o
   \centering
   \includegraphics[
     width=0.85\textwidth,
-    alt={Satellite image of the study area spanning Tajikistan, northeast Afghanistan, and northwest Pakistan. Circles are SNOWPACK virtual stations colored by modeled probability for the January 22-25, 2026 forecast window, from green (low) through gold and orange to dark red (at least 80 percent); triangles mark the eight avalanche reports from January 23, 2026, colored the same way. A cluster of dark-red stations and triangles appears in the southern group, coinciding with most of the reported events.}
+    alt={Satellite image of the study area spanning Tajikistan, northeast Afghanistan, and northwest Pakistan. Circles are SNOWPACK virtual stations colored and sized by modeled probability for the January 22-25, 2026 forecast window: small green markers are low probability, growing through gold and orange to the largest, dark-red markers at 80 percent or higher; triangles mark the eight avalanche reports from January 23, 2026, colored and sized the same way. A cluster of large dark-red stations and triangles appears in the southern group, coinciding with most of the reported events.}
   ]{./figures/fig1_map.png}
   \caption{Study area map with the January 23, 2026 event cycle selected. Triangles mark the valley-floor avalanche reports for that date; circles are SNOWPACK virtual stations with rings colored by modeled probability in the January 22–25 forecast window. The dark-red cluster ($\geq$80\%) coincides with the reported events, while stations without matching observations are shown faded.}
   \label{fig:study_area_map}
@@ -190,7 +192,7 @@ The pattern inside that failure is the most useful thing we found (Table \ref{ta
   \centering
   \includegraphics[
     width=1.\columnwidth,
-    alt={Scatter plot of per-station event-window probability against number of prior training events at a station, counted across any season. Detected events are green circles and missed events are red X marks, so the two classes are distinguishable by both color and shape; a black dashed mean line rises from 0.48 at one prior event to 0.78 at two and 0.72 at three.}
+    alt={Scatter plot of per-station event-window probability against number of prior training events at a station, counted across any season. Detected events are green circles and missed events are red X marks, so the two classes are distinguishable by both color and shape; a black dashed mean line rises from 0.48 at one prior event to 0.78 at two and 0.72 at three. A gray dashed line marks the 0.5 detection threshold that separates the two classes, and a blue dotted line marks the 0.15 median non-event probability, which most missed events sit closer to than to the threshold.}
   ]{./figures/fig2_learning_curve.png}
   \caption{Learning curve: detection rate and mean warning probability as a function of the number of prior observed events at a station (any season).}
   \label{fig:learning_curve}
@@ -246,9 +248,9 @@ The rest are not ready, almost always because they have too few logged events to
   \centering
   \includegraphics[
     width=0.75\textwidth,
-    alt={Avalanche probability chart for station 160942 (east-facing) over the 2025-26 season, with operational threshold bands. Probability peaks near 1.00 in the highlighted three-day window around the January 23 event, and stays well below the 33 percent threshold on most other days.}
+    alt={Avalanche probability chart for station 160942 (east-facing) over the 2025-26 season, with shaded operational threshold bands at 33, 50, 65, and 80 percent. A smaller early-February spike reaches about 20 percent; outside these spikes, probability mostly holds below 10 percent.}
   ]{./figures/fig4_stability_160942.png}
-  \caption{Per-station avalanche probability for station 160942\_res (east-facing, best-performing station) over the 2025–2026 season, with operational threshold bands. The model assigns probability $\sim$1.00 in the highlighted three-day window around the observed January 23 event, with markedly lower probabilities on surrounding non-event days.}
+  \caption{Per-station avalanche probability for station 160942\_res (east-facing station) over the 2025–2026 season, with operational threshold bands. The model assigns probability $\sim$1.00 in the highlighted three-day window around the observed January 23 event, with markedly lower probabilities on surrounding non-event days.}
   \label{fig:case_study}
 \end{figure*}
 

@@ -74,7 +74,6 @@
 }
 
 \RequirePackage[normalem]{ulem} % provides \uline
-\RequirePackage{titlesec}
 
 % Bibliography: biblatex + biber, natbib-compatible commands
 \RequirePackage[
@@ -202,32 +201,28 @@
 \renewcommand\thesubsection{\thesection\arabic{subsection}.}
 \renewcommand{\ULthickness}{0.08pt} % or 0.08pt if you want very thin
 
-% --- Section: non-bold, Times-like, ISSWish size ---
+% --- Section / Subsection: non-bold, Times-like, ISSWish size ---
+% Implemented via the kernel's own \@startsection rather than titlesec:
+% titlesec replaces the sectioning internals that LaTeX's tagged-PDF
+% engine (\DocumentMetadata{tagging=on}) patches to emit heading tags,
+% and is listed "currently-incompatible" with tagging upstream
+% (https://github.com/latex3/tagging-project, package titlesec). With
+% titlesec loaded, \section/\subsection compiled with no /H1, /H2, or
+% /Sect structure at all. \@startsection keeps the kernel's own hooks
+% intact, so headings tag correctly.
+\def\@seccntformat#1{\csname the#1\endcsname\hspace{0.5em}}
 
-\titleformat{\section}
-  {\normalfont\rmfamily\mdseries\large} % font: Times, non-bold, large
-  {\thesection}                         % label e.g. "1."
-  {0.5em}                               % space between label and title
-  {}                                    % code before title text
+\renewcommand\section{%
+  \@startsection{section}{1}{0pt}%
+    {2.5ex plus 0.5ex minus 0.2ex}% space above
+    {1.4ex plus 0.3ex}            % space below (positive = own line)
+    {\normalfont\rmfamily\mdseries\large}}% font: Times, non-bold, large
 
-% --- Subsection: italic + thin underline, non-bold, Times-like ---
-\titleformat{\subsection}
-  {\normalfont\rmfamily\mdseries\itshape\normalsize} % italic, non-bold
-  {\thesubsection}                                   % label e.g. "1.1."
-  {0.5em}
-  {\uline}                                          % thin underline under title text
-
-
-% Section spacing tuned to resemble ISSW Word template
-\titlespacing*{\section}
-  {0pt}                         % left indent
-  {2.5ex plus 0.5ex minus 0.2ex}% space above
-  {1.4ex plus 0.3ex}            % space below
-
-\titlespacing*{\subsection}
-  {0pt}
-  {2.5ex plus 0.5ex minus 0.2ex}% space above
-  {1.0ex plus 0.2ex}            % space below
+\renewcommand\subsection{%
+  \@startsection{subsection}{2}{0pt}%
+    {2.5ex plus 0.5ex minus 0.2ex}% space above
+    {1.0ex plus 0.2ex}            % space below
+    {\normalfont\rmfamily\mdseries\itshape\normalsize}}% italic
 
 
 % Title + abstract + keywords style similar to elsarticle_issw MaketitleBox
