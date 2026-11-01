@@ -47,3 +47,4 @@ docs/paper/*-luamml-mathml.html
 
 # macOS Finder metadata
 .DS_Store
+.vscode/
