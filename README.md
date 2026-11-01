@@ -1,54 +1,59 @@
 # caw-avalanche-mapping
 
-Avalanche forecasting support for data-sparse Central Asia. The tool links NWP-driven [SNOWPACK](https://models.slf.ch/p/snowpack/) simulations to opportunistically-collected avalanche observations, trains per-station and pooled classifiers, and produces interactive stability plots and a forecast map. Developed for the ISSW 2026 paper *"Avalanche Forecasting in Data-Sparse Central Asia: A Weak-Supervision Framework."*
+Avalanche forecasting support for data-sparse Central Asia. The tool links NWP-driven [SNOWPACK](https://models.slf.ch/p/snowpack/) simulations to opportunistically collected avalanche observations, trains per-station and pooled classifiers, and produces interactive stability charts and a forecast map. Developed for the ISSW 2026 paper *"Avalanche Forecasting in Data-Sparse Central Asia: A Weak-Supervision Framework."*
 
-Live map: served via GitHub Pages from `index.html` at the repository root.
+The code runs in two modes:
 
-## Overview
+- Evaluation (default). Trains on 2024-25, evaluates on the held-out 2025-26 season and builds the paper's figures and the 2025-26 map. The map is served by GitHub Pages from `index.html` at the repository root.
+- Forecast-only (`--forecast-only`). Trains on every past season and predicts the current one (2026-27). No evaluation. Runs daily from cron and publishes to https://caw.wac3.ch/nwp/caw/test/forecast/index.html.
 
-The pipeline:
+See `docs/methods_and_results.md` for methods and results, and `docs/map_user_guide.md` for the 2025-26 map.
+
+## Pipeline
 
 1. Load avalanche observations from `data/observations/avalanches_<SEASON>.csv` (all seasons combined).
 2. Match each observation to the nearest SNOWPACK station of the same aspect, using `snowpack_stations_locations.csv`.
 3. Parse `.pro` (layer stratigraphy, Sn38) and `.smet` (meteorology) files into daily features.
-4. Train classifiers on the training season and evaluate on the held-out test season:
-   - **per-station** logistic regression
-   - **regional** pooled logistic regression (CV-tuned regularization)
-   - **blended** confidence-weighted combination
-   - **hierarchical Bayesian** partial-pooling model (also yields per-station uncertainty)
-5. Evaluate with temporal leave-one-out CV, event-level precision-recall, and an operational false-alarm analysis.
-6. Fit an **operational blended model** on all available data (both seasons combined) for the forecast map.
-7. Generate per-station interactive stability plots (Plotly) and an interactive Folium forecast map (`index.html`).
-
-See `docs/methods_and_results.md` for the full methods and results writeup.  
-See `docs/map_user_guide.md` for a complete guide to the interactive map.
+4. Train the classifiers:
+   - per-station logistic regression
+   - regional pooled logistic regression (CV-tuned regularization)
+   - blended, a confidence-weighted combination of the two
+   - hierarchical Bayesian partial-pooling model (random intercepts, shared slopes; also yields per-station uncertainty)
+5. Evaluation mode only: temporal leave-one-out CV, event-level precision-recall and an operational false-alarm analysis, which sets each station's confidence tier.
+6. Fit the operational models on all available data and pick one per station (blended for "ready" stations, hierarchical otherwise unless it fails its reliability check).
+7. Write per-station Plotly stability charts and a Folium forecast map.
 
 ## Project Structure
 
 ```
 caw-avalanche-mapping/
 ├── src/
-│   ├── main.py            # Entry point — orchestrates the full pipeline
+│   ├── main.py            # entry point; evaluation pipeline and shared helpers
+│   ├── forecast.py        # forecast-only mode (main.py --forecast-only)
 │   ├── snowpack_io.py     # .pro / .smet parsing, aspect-aware station matching
 │   ├── features.py        # daily feature engineering (reduced 5-feature set)
 │   ├── classifier.py      # per-station / regional / blended logistic regression + evaluation
 │   ├── hierarchical.py    # hierarchical Bayesian (PyMC) partial-pooling model
-│   └── visualization.py   # Plotly stability plots + Folium map
+│   ├── terrain.py         # DEM download and avalanche-path tracing
+│   ├── select_pro_files.py # remote-side helper: copy aspect-matched .pro files
+│   └── visualization.py   # Plotly stability charts + Folium map
 ├── scripts/
-│   └── sync_pro_files.py  # download season .pro/.smet from the remote server
+│   ├── sync_pro_files.py         # copy a season's .pro/.smet files (local run dir or SSH)
+│   ├── focus_map.py              # WMP-point / station map with the model-location editor
+│   ├── focus_map_editor.js       # editor UI, embedded into the map by focus_map.py
+│   ├── save_model_locations.php  # save endpoint for the editor (copied next to the map)
+│   ├── daily_forecast.sh         # cron job: sync + forecast + publish
+│   └── generate_hierarchical_comparison.py  # presentation figures
 ├── data/
 │   ├── simulations/<SEASON>/*.pro,*.smet   # SNOWPACK outputs, one set per season
 │   ├── observations/avalanches_<SEASON>.csv # field observations per season
-│   └── snowpack_stations_locations.csv      # station id → lat/lon/elevation
-├── docs/
-│   ├── map_user_guide.md           # interactive map feature guide
-│   ├── methods_and_results.md      # paper methods & results
-│   ├── paper/                      # ISSW 2026 extended abstract (.tex, .md, figures)
-│   └── map_design_discussion.md    # map design notes
-├── assets/<SEASON>/
-│   └── stability_*.html   # per-station Plotly stability charts (served by GitHub Pages)
-├── index.html             # Folium forecast map (GitHub Pages entry point)
-├── output/                # evaluation CSVs and figures (git-ignored)
+│   ├── FOCUS_Ava.kml                        # WMP point locations (forecast station set)
+│   ├── geo/pamir_highway.geojson            # M41 route, OSM relation 180104 (ODbL)
+│   └── snowpack_stations_locations.csv      # station id → lat/lon/elevation (older runs)
+├── docs/                  # methods, map guide, ISSW paper
+├── assets/<SEASON>/stability_*.html  # 2025-26 charts served by GitHub Pages
+├── index.html             # 2025-26 Folium map (GitHub Pages entry point)
+├── output/                # evaluation CSVs, figures, forecast site (git-ignored)
 ├── models/                # saved classifiers (git-ignored)
 ├── pyproject.toml
 └── uv.lock
@@ -62,9 +67,11 @@ Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 uv sync
 ```
 
-Dependencies: `pandas`, `numpy`, `scikit-learn`, `joblib`, `pymc`, `arviz`, `plotly`, `folium`, `matplotlib`.
+Main dependencies: `pandas`, `numpy`, `scikit-learn`, `joblib`, `pymc`, `arviz`, `plotly`, `folium`, `matplotlib`, and `xsnow` (pinned from GitLab, not on PyPI).
 
-## Running
+The paper's case-study PNG (`fig4_stability_160942.png`) is rendered by kaleido, which needs Chrome. Without it the run prints a warning and skips that one figure. Install Chrome with `uv run kaleido_get_chrome`.
+
+## Evaluation Mode
 
 ```bash
 uv run python src/main.py                          # full pipeline
@@ -73,27 +80,89 @@ uv run python src/main.py --no-hierarchical        # skip PyMC / MCMC sampling
 uv run python src/main.py --forecast-date 2026-01-23
 ```
 
-Outputs: `index.html` (map) and `assets/<SEASON>/stability_*.html` (stability plots) are written directly to the repository root so GitHub Pages can serve them. Evaluation CSVs and figures go to `output/`.
+`SEASON` (test) and `TRAIN_SEASON` are set at the top of `src/main.py`. The run writes `index.html` and `assets/<SEASON>/stability_*.html` to the repository root, which changes the live GitHub Pages site once committed. Evaluation CSVs and figures go to `output/`.
 
-### Adding a new season
-
-1. Drop `.pro`/`.smet` files into `data/simulations/<new-season>/` (or run `scripts/sync_pro_files.py`).
-2. Add `data/observations/avalanches_<new-season>.csv`.
-3. Set `SEASON` / `TRAIN_SEASON` in `src/main.py` and rerun with `--retrain`.
-
-### Downloading simulation files
-
-`scripts/sync_pro_files.py` downloads only the (station, aspect) `.pro`/`.smet` pairs needed for the observations, via rsync over SSH. Configure `.env` (copy from `.env.example`):
-
-```
-SSH_PORT=<port>
-SSH_KEY=~/.ssh/your_key
-```
+## Forecast-Only Mode (2026-27)
 
 ```bash
-uv run python scripts/sync_pro_files.py --dry-run   # preview
-uv run python scripts/sync_pro_files.py
+uv run python src/main.py --forecast-only [--site-dir DIR] [--forecast-date YYYY-MM-DD] [--retrain] [--no-hierarchical]
 ```
+
+- Season: `FORECAST_SEASON` in `src/main.py` (`2026-2027`). Every other folder under `data/simulations/` is training data.
+- Labels: observations from the training seasons, each matched within its own season's folder. Observations from the forecast season are not used for training, because the forecast folder only holds the selected stations and nearest-station matching would snap them onto an unrelated one.
+- Stations: every `.pro`/`.smet` pair in `data/simulations/2026-2027/`.
+- Forecast date: the last simulated day unless `--forecast-date` is given.
+- Confidence tiers and hierarchical reliability are read from the last evaluation run (`output/evaluation_operational.csv`, `output/hierarchical_uncertainty.csv`). Without them every station is "not ready".
+- Stations with no avalanche history of their own get their hierarchical probability shown relative to a regional avalanche day: the population-level prior's mean probability on all known training event days (p = 0.094 for the current model).
+- The hierarchical model is cached in `models/forecast/hierarchical.joblib` and resampled only with `--retrain`.
+- Output: `index.html` plus `assets/2026-2027/stability_*.html` in `--site-dir` (default `output/forecast/2026-2027/`). The repository-root `index.html` is never touched.
+
+Each forecast chart has an "Open SNOWPACK viewer" button. It opens the niViz page from the sibling `snowpack-mapping` repo (`/nwp/caw/conditions/profiles.html?year=2026&id=<station>`), which stacks the timelines of all five aspects.
+
+### Daily cron job
+
+`scripts/daily_forecast.sh` runs at 11:30 UTC, after the SNOWPACK output lands (about 10:10 UTC) and after the snowpack-mapping conditions map (11:00 UTC):
+
+```
+30 11 * * * /home/ops/post-processing/caw-avalanche-mapping/scripts/daily_forecast.sh > /dev/null 2>&1
+```
+
+It syncs the station files (applying the saved editor selection with `--prune`), runs forecast mode and publishes to `/var/www/html/nwp/caw/test/forecast/`. It logs to `/home/ops/rtsys/log/caw_forecast.log` and a `flock` stops overlapping runs. Cron runs whatever branch is checked out in this working copy. It does not check that the day's SNOWPACK output arrived, so a late run publishes the previous day.
+
+## Station Selection
+
+### Syncing simulation files
+
+`scripts/sync_pro_files.py` copies `.pro`/`.smet` pairs into `data/simulations/<SEASON>/`.
+
+```bash
+# 2026-27: nearest station to every WMP point, all aspects, plus the editor's edits
+uv run python scripts/sync_pro_files.py --season 2026-2027 \
+    --source /mnt/HC_Volume_106760790/model/snowpack/runs/output.caw.2026 \
+    --focus data/FOCUS_Ava.kml \
+    --selection /var/www/html/nwp/caw/test/model_locations/model_locations.json --prune
+
+# Older seasons: one pair per (station, aspect) found in the observations, over SSH
+uv run python scripts/sync_pro_files.py --dry-run
+```
+
+- `--source DIR` copies from a local run directory. Without it the script pulls over SSH (`SSH_PORT`, `SSH_KEY` in `.env`).
+- `--focus KML` matches every Point placemark to its nearest station by the `.pro` header coordinates of the source run and copies all five aspect files. It also writes `focus_stations.csv` (point, station, distance) next to the files. The 63 WMP points map to 59 stations, all within 4.9 km.
+- `--selection JSON` applies the Add/Remove edits from the map editor on top of that baseline.
+- `--prune` deletes files in the season folder that are no longer selected. `--dry-run` previews everything.
+
+### Model-location editor map
+
+```bash
+uv run python scripts/focus_map.py [--season 2026-2027] [--out DIR] [--source RUN_DIR]
+```
+
+Builds `focus_stations_map.html` (default `/home/ops/www/nwp/caw/test/`, served at https://caw.wac3.ch/nwp/caw/test/focus_stations_map.html). Layers: WMP points, their stations, the Pamir Highway, the 49 stations within 8 km of the highway (one grid spacing), all 1,688 run stations (off by default) and the edits.
+
+Clicking a marker or any spot on the map opens the nearest station in a side panel. Mark it Add or Remove for any of Flat, N, E, S, W, then Apply. Save posts the edits to `save_model_locations.php`, which writes `model_locations/model_locations.json` and copies the previous version to `model_locations/backups/model_locations_<UTC timestamp>.json` when the content changed. Unsaved edits stay as a draft in the browser. The search box takes WMP names, station ids, place names (OpenStreetMap Nominatim) or `lat, lon`.
+
+The endpoint has no authentication: anyone who can reach the page can overwrite the file. PHP runs as `apache`, so the save folder needs a one-time ACL:
+
+```bash
+mkdir /var/www/html/nwp/caw/test/model_locations
+setfacl -m u:apache:rwx,d:u:apache:rwx,d:u:ops:rwx,d:m::rwx /var/www/html/nwp/caw/test/model_locations
+```
+
+`model_locations.json` (schema `caw-model-locations/1`):
+
+```json
+{
+  "schema": "caw-model-locations/1",
+  "season": "2026-2027",
+  "saved": "2026-11-01T19:14:52Z",
+  "selections": [
+    {"station": "23158", "action": "add", "aspects": ["N", "S"], "note": "", "source": "...",
+     "lat": 37.4963, "lon": 71.5469, "elevation": 2641, "updated": "..."}
+  ]
+}
+```
+
+`add` adds the listed aspects of a station, `remove` drops them. Aspect names map to file suffixes: Flat → none, N → `1`, E → `2`, S → `3`, W → `4`.
 
 ## Data Formats
 
@@ -101,35 +170,27 @@ uv run python scripts/sync_pro_files.py
 
 Columns: `Place`, `Lat`, `Long`, `Slope`, `Aspect` (N/E/S/W), `Elevation (M)`, `Date`, `Size`, `Remarks`.
 
-### SNOWPACK `.pro` files
+### SNOWPACK files
 
-Station outputs named `{station_id}{aspect_suffix}_res.pro`, where the aspect suffix is `1`=N, `2`=E, `3`=S, `4`=W, and no suffix = flat. The parser reads three record codes:
+Station outputs are named `{station_id}{aspect_suffix}_res.pro` (and `.smet`). Station ids are 5 digits; the aspect suffix is `1`=N, `2`=E, `3`=S, `4`=W and absent for flat, so `231581_res` is station 23158 north and `13874_res` is station 13874 flat. Inclined aspects are 38°. Parsing goes by stem length, not the last digit. A run with ids of another length breaks this.
 
-| Code | Content |
-|------|---------|
-| `0500` | Timestep date |
-| `0501` | Layer heights from ground (cm), bottom→top |
-| `0532` | Sn38 (natural stability index) per layer, same order as `0501` |
-
-Layers shallower than 20 cm burial depth are excluded.
+The `.pro` parser (via xsnow) reads layer heights from ground and Sn38 per layer. Layers buried less than 20 cm are excluded, so early in the season a station can have no layers at all. The charts then draw the snow surface from daily HS and say so.
 
 ## Model Features
 
-The classifiers use a reduced five-feature daily set (selected to limit overfitting given sparse events):
+The classifiers use a reduced five-feature daily set, selected to limit overfitting with sparse events:
 
 | Feature | Role |
 |---|---|
-| `HS` | Total snow depth — size / valley-reach proxy |
-| `HN24` | 24-hour new snow — loading trigger |
-| `TA_max` | Daily max air temperature — wet vs dry mechanism |
-| `sn38_min` | Whole-profile minimum stability index — weakest-layer strength |
+| `HS` | Total snow depth (size / valley-reach proxy) |
+| `HN24` | 24-hour new snow (loading trigger) |
+| `TA_max` | Daily max air temperature (wet vs dry mechanism) |
+| `sn38_min` | Whole-profile minimum stability index (weakest-layer strength) |
 | `depth_lower_wl` | Burial depth of the weakest lower-zone layer |
 
 ## Map Features
 
-The forecast map (`index.html`) shows simulation station circles and field observation triangles, both coloured by the six-level probability scale below. See `docs/map_user_guide.md` for full details.
-
-**Probability colour scale:**
+The forecast maps show simulation station circles and field observation triangles, coloured by the probability scale below. See `docs/map_user_guide.md` for details.
 
 | Colour | Probability |
 |--------|-------------|
@@ -140,16 +201,18 @@ The forecast map (`index.html`) shows simulation station circles and field obser
 | Red | 65 – 80 % |
 | Dark red | ≥ 80 % |
 
-**Key interactions:**
-- **Click** any marker → opens the station's interactive stability chart (probability panel on top, 2025-26 season only).
-- **Date Navigator** (bottom-centre) → filters observations by date and recolours all markers by the maximum blended probability within ±3 days of the selected date.
-- **Time Series Player** (bottom) → scrubs through daily blended probability for each station across the full 2025-26 season.
-- **Aspect filter** (bottom-right) → shows one aspect at a time, or "All" (maximum probability per unique location).
-- **Regional model overlay** (layer toggle) → shows probabilities from the pooled model for all stations.
+Markers are coloured by raw probability. The hierarchical model's probabilities sit near its ~1 % base rate, so hierarchical stations read green on the map even when their chart, scaled to a known or regional avalanche day, shows a strong signal. The tooltip gives the ratio.
 
-**Station confidence tiers** (from operational false-alarm analysis):
+Interactions:
+- Click any station marker to open its stability chart.
+- Date Navigator (bottom centre) filters observations by date and recolours markers by the maximum probability within ±3 days.
+- Time Series Player (bottom) scrubs through daily probability per station.
+- Aspect filter (bottom right) shows one aspect, or "All" (maximum per location).
+- Regional model overlay (layer toggle) shows the pooled model for all stations.
 
-| Tier | Fill opacity | False alarm rate | Stations |
+Station confidence tiers, from the operational false-alarm analysis of the evaluation run:
+
+| Tier | Fill opacity | False alarm rate | Stations (2025-26 evaluation) |
 |------|-------------|-----------------|----------|
 | Ready | 0.82 (solid) | ≤ 10 % | 160942 E, 153203 S, 180343 S, 164801 N |
 | Marginal | 0.42 (faded) | 10 – 25 % | 272401 N, 176522 E, 250224 S |
@@ -159,15 +222,18 @@ The forecast map (`index.html`) shows simulation station circles and field obser
 
 | File | Contents |
 |---|---|
-| `index.html` | Folium forecast map (GitHub Pages entry point) |
+| `index.html` | 2025-26 Folium map (GitHub Pages entry point) |
 | `assets/<SEASON>/stability_*.html` | Per-station Plotly stability charts |
+| `output/forecast/<SEASON>/` | Forecast-only site (map + charts) when `--site-dir` is not given |
 | `output/evaluation_{regional,blended,hierarchical}.csv` | Aggregate model metrics |
 | `output/evaluation_loo.csv` | Temporal leave-one-out per-fold results |
-| `output/evaluation_operational.csv` | Per-station recall-maximizing threshold + false-alarm rate |
-| `output/hierarchical_uncertainty.csv` | Per-station mean probability + posterior std |
+| `output/evaluation_operational.csv` | Per-station recall-maximizing threshold + false-alarm rate (sets the tiers) |
+| `output/hierarchical_uncertainty.csv` | Per-station mean probability, posterior std, reliability flag |
 | `output/pr_curves.png` | Event-level precision-recall curves (all models) |
 | `output/loo_performance_by_events.png` | Learning curve: performance vs. training-event count |
 | `output/operational_thresholds.png` | False-alarm rate per station, by tier |
+| `data/simulations/<SEASON>/focus_stations.csv` | WMP point → station manifest from `--focus` |
+| `data/geo/pamir_highway_stations.csv` | Stations within 8 km of the Pamir Highway |
 
 ## Sn38 Interpretation
 
