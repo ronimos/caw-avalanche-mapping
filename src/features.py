@@ -116,4 +116,9 @@ def _layer_zone_features(snow_df: pd.DataFrame) -> pd.DataFrame:
             'depth_lower_wl': depth_lower_wl,
         })
 
-    return pd.DataFrame(results).set_index('timestamp')
+    # No layer deep enough at any timestep (e.g. early season): return an empty
+    # frame with the expected columns so the zone features are simply NaN.
+    df = pd.DataFrame(results, columns=['timestamp', 'sn38_upper_min',
+                                        'sn38_lower_min', 'depth_lower_wl'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    return df.set_index('timestamp')

@@ -64,7 +64,9 @@ def parse_snow_data(file_path: str | Path) -> pd.DataFrame:
     # layer, and the synthetic layer shifts burial depths at the 20 cm cutoff.
     xs = xsnow.read(str(file_path), logger=_QUIET_LOGGER,
                     add_surface_sh_as_layer=False)
-    if xs is None:
+    # A file with no snow layers at any timestep (e.g. early season at a
+    # low or sunny station) has no layer variables at all.
+    if xs is None or 'sn38' not in xs.data or 'height' not in xs.data:
         return pd.DataFrame(
             columns=['total_height', 'layer_z', 'burial_depth', 'sn38'],
             index=pd.DatetimeIndex([], name='timestamp'),

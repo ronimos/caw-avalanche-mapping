@@ -34,6 +34,13 @@ from visualization import (create_avalanche_map, plot_interactive_stability,
 
 SEASON       = "2025-2026"
 TRAIN_SEASON = "2024-2025"
+EVAL_FORECAST_DATE = "2026-01-23"
+
+# Forecast-only mode (--forecast-only, see src/forecast.py): no held-out
+# evaluation.  Models are trained on every season under data/simulations/
+# except FORECAST_SEASON, then predict every station in FORECAST_SEASON
+# (populated by scripts/sync_pro_files.py --focus).
+FORECAST_SEASON = "2026-2027"
 
 # Best-performing station; also gets a static PNG export of its stability
 # chart for the case-study figure in the paper (docs/paper/figures/).
@@ -103,6 +110,7 @@ def _hier_known_event_ref(
 def _hier_known_event_axis(
     mean_series: pd.Series, lower_series: pd.Series, upper_series: pd.Series,
     known_event_ref: float,
+    regional: bool = False,
 ) -> dict:
     """
     Normalizes a hierarchical model's probability (and its 95% CI) by
@@ -113,7 +121,13 @@ def _hier_known_event_axis(
     scale. Log-scaled: the ratio genuinely spans two-plus orders of
     magnitude both across stations and within one station's season (observed
     range so far: ~0.07x to ~33x).
+
+    regional=True labels the reference as a regional avalanche day: used for
+    stations with no history of their own, whose reference is the model's
+    population-level prediction on all known training events (see
+    forecast._population_event_ref).
     """
+    what = 'a regional avalanche day' if regional else 'a known avalanche day'
     return {
         'prob_series': mean_series / known_event_ref,
         'prob_lower':  lower_series / known_event_ref,
@@ -122,11 +136,11 @@ def _hier_known_event_axis(
         'y_range': [-2, 2],  # 0.01x-100x: comfortable margin over the observed 0.07x-33x
         'y_tickformat': '',
         'y_ticksuffix': 'x',
-        'y_axis_title': 'Relative to a known avalanche day',
-        'curve_hovertemplate': '%{y:.2f}x known event<extra></extra>',
+        'y_axis_title': f'Relative to {what}',
+        'curve_hovertemplate': f"%{{y:.2f}}x {'regional' if regional else 'known'} event<extra></extra>",
         'curve_fill': None,
         'prob_bands': [],
-        'prob_thresholds': [(1.0, '#555555', 'Known event')],
+        'prob_thresholds': [(1.0, '#555555', 'Regional event' if regional else 'Known event')],
     }
 
 
@@ -136,9 +150,20 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--forecast-date", default="2026-01-23", metavar="YYYY-MM-DD",
+        "--forecast-date", default=None, metavar="YYYY-MM-DD",
         help="Forecast reference date. Map markers are coloured by max probability "
-             "in the window [date−1d, date+2d]; stability plots highlight the same window.",
+             "in the window [date−1d, date+2d]; stability plots highlight the same window. "
+             f"Default: {EVAL_FORECAST_DATE}, or with --forecast-only the last simulated day.",
+    )
+    p.add_argument(
+        "--forecast-only", action="store_true",
+        help=f"Operational forecast for {FORECAST_SEASON}: train on all other seasons, "
+             "skip evaluation, predict every station in the forecast season.",
+    )
+    p.add_argument(
+        "--site-dir", type=Path, default=None,
+        help="Where --forecast-only writes index.html and assets/<SEASON>/. "
+             f"Default: output/forecast/{FORECAST_SEASON}/ (the repo-root index.html is left alone).",
     )
     p.add_argument(
         "--retrain", action="store_true",
@@ -425,9 +450,174 @@ def _collect_all_season_features(
     return combined
 
 
+def _choose_models(
+    op_blended_dict: dict[str, pd.Series],
+    hier_prob_dict: dict[str, pd.Series],
+    station_tier_map: dict[str, str],
+    hier_reliable: dict[str, bool],
+) -> tuple[dict[str, pd.Series], dict[str, str]]:
+    """
+    Per-station model switch (see the --- Model switch --- comment in main()).
+    Returns (prob_by_station, model_used).
+    """
+    model_used: dict[str, str] = {}
+    prob_by_station: dict[str, pd.Series] = {}
+    for _sid in set(op_blended_dict) | set(hier_prob_dict):
+        _tier = station_tier_map.get(_sid, 'not_ready')
+        _hier_ok = hier_reliable.get(_sid, True)  # benefit of the doubt if unchecked (no test event yet)
+        if _tier == 'ready' and _sid in op_blended_dict:
+            prob_by_station[_sid] = op_blended_dict[_sid]
+            model_used[_sid] = 'blended'
+        elif _sid in hier_prob_dict and _hier_ok:
+            prob_by_station[_sid] = hier_prob_dict[_sid]
+            model_used[_sid] = 'hierarchical'
+        elif _sid in op_blended_dict:
+            prob_by_station[_sid] = op_blended_dict[_sid]
+            model_used[_sid] = 'blended' if _hier_ok else 'blended_fallback'
+        else:
+            prob_by_station[_sid] = hier_prob_dict[_sid]
+            model_used[_sid] = 'hierarchical'
+    return prob_by_station, model_used
+
+
+def _render_stability_plots(
+    plot_queue: list[dict],
+    prob_by_station: dict[str, pd.Series],
+    model_used: dict[str, str],
+    hier_known_event_ref: dict[str, float],
+    hier_ci_dict: dict[str, tuple[pd.Series, pd.Series]],
+    station_tier_map: dict[str, str],
+    png_dir: Path | None = None,
+    regional_ref_ids: set[str] = frozenset(),
+) -> None:
+    """Write one interactive stability chart per plot_queue item. When png_dir
+    is given, CASE_STUDY_STATION also gets a static PNG of its probability row."""
+    if not plot_queue:
+        return
+    print(f"\nGenerating {len(plot_queue)} stability plots...")
+    for item in plot_queue:
+        sid = item['station_id']
+        print(f"  Plotting {item['pro_file'].name}...")
+        sid_model = model_used.get(sid, 'blended')
+        prob_series = prob_by_station.get(sid)
+        prob_lower = prob_upper = None
+        prob_bands = prob_thresholds = y_tickvals = y_ticktext = None
+        y_axis_type, y_range = 'linear', [0, 1]
+        y_tickformat, y_ticksuffix = '.0%', ''
+        curve_hovertemplate, curve_fill = 'Prob: %{y:.1%}<extra></extra>', 'tozeroy'
+        y_axis_title = 'Probability'
+        right_margin = 140
+        known_ref = hier_known_event_ref.get(sid)
+        if sid_model == 'hierarchical' and prob_series is not None and known_ref is not None:
+            lower_s, upper_s = hier_ci_dict.get(sid, (None, None))
+            axis = _hier_known_event_axis(prob_series, lower_s, upper_s, known_ref,
+                                          regional=sid in regional_ref_ids)
+            prob_series          = axis['prob_series']
+            prob_lower           = axis['prob_lower']
+            prob_upper           = axis['prob_upper']
+            prob_bands           = axis['prob_bands']
+            prob_thresholds      = axis['prob_thresholds']
+            y_axis_type          = axis['y_axis_type']
+            y_range              = axis['y_range']
+            y_tickformat         = axis['y_tickformat']
+            y_ticksuffix         = axis['y_ticksuffix']
+            y_axis_title         = axis['y_axis_title']
+            curve_hovertemplate  = axis['curve_hovertemplate']
+            curve_fill           = axis['curve_fill']
+            right_margin         = 280
+        is_case_study = png_dir is not None and sid == CASE_STUDY_STATION
+        plot_interactive_stability(
+            parse_snow_data(item['pro_file']),
+            item['out_path'],
+            sid,
+            event_dates=item['event_dates'],
+            test_dates=item['test_dates'],
+            prob_series=prob_series,
+            prob_lower=prob_lower, prob_upper=prob_upper,
+            prob_bands=prob_bands, prob_thresholds=prob_thresholds,
+            y_tickvals=y_tickvals, y_ticktext=y_ticktext, y_axis_title=y_axis_title,
+            y_axis_type=y_axis_type, y_range=y_range,
+            y_tickformat=y_tickformat, y_ticksuffix=y_ticksuffix,
+            curve_hovertemplate=curve_hovertemplate, curve_fill=curve_fill,
+            right_margin=right_margin,
+            daily_df=item['daily_df'],
+            forecast_date=item['forecast_date'],
+            aspect=_station_aspect(sid),
+            confidence_tier=_station_tier(sid, station_tier_map),
+            model_used=sid_model,
+            png_path=(png_dir / f"fig4_stability_{CASE_STUDY_STATION.replace('_res', '')}.png"
+                      if is_case_study else None),
+            png_rows=['prob'] if is_case_study else None,
+        )
+        print(f"  → {item['out_path']}  (model: {sid_model})")
+
+
+def _build_sim_stations(
+    sim_dir: Path,
+    season: str,
+    prob_by_station: dict[str, pd.Series],
+    regional_prob_dict: dict[str, pd.Series],
+    model_used: dict[str, str],
+    hier_known_event_ref: dict[str, float],
+    station_tier_map: dict[str, str],
+    win_start: pd.Timestamp,
+    win_end: pd.Timestamp,
+    regional_ref_ids: set[str] = frozenset(),
+) -> list[dict]:
+    """Per-station metadata (location, window-max probability, tier, chart
+    URL) for the map's simulation-station overlay."""
+    sim_stations: list[dict] = []
+    for pro_file in sorted(sim_dir.glob('*.pro')):
+        coords = extract_pro_coordinates(pro_file)
+        if coords is None:
+            continue
+        lat, lon = coords
+        stem    = pro_file.stem
+        prob    = None
+        if stem in prob_by_station:
+            s = prob_by_station[stem]
+            win = s[(s.index >= win_start) & (s.index <= win_end)]
+            v   = float(win.max()) if not win.dropna().empty else None
+            prob = round(v, 4) if v is not None else None
+        reg_prob = None
+        if stem in regional_prob_dict:
+            s_reg = regional_prob_dict[stem]
+            win_reg = s_reg[(s_reg.index >= win_start) & (s_reg.index <= win_end)]
+            v_reg   = float(win_reg.max()) if not win_reg.dropna().empty else None
+            reg_prob = round(v_reg, 4) if v_reg is not None else None
+        # For a hierarchical-driven station, forecast_prob alone reads as a
+        # tiny, unalarming number (shrunk toward the ~1-2% regional base
+        # rate) — the same reason the chart itself is normalized (see
+        # _hier_known_event_axis). Carry the same ratio here so the map
+        # tooltip doesn't contradict the chart it links to.
+        known_ratio = None
+        if model_used.get(stem) == 'hierarchical' and prob is not None:
+            ref = hier_known_event_ref.get(stem)
+            if ref:
+                known_ratio = round(prob / ref, 3)
+        sim_stations.append({
+            'id':                stem,
+            'lat':               lat,
+            'lon':               lon,
+            'aspect':            _station_aspect(stem),
+            'forecast_prob':     prob,
+            'confidence_tier':   _station_tier(stem, station_tier_map),
+            'model_used':        model_used.get(stem, 'blended'),
+            'known_event_ratio': known_ratio,
+            'known_event_basis': 'regional' if stem in regional_ref_ids else 'station',
+            'regional_prob':     reg_prob,
+            'url':               f"assets/{season}/stability_{stem}.html",
+        })
+    return sim_stations
+
+
 def main() -> None:
-    args          = _parse_args()
-    forecast_date = pd.Timestamp(args.forecast_date)
+    args = _parse_args()
+    if args.forecast_only:
+        from forecast import run_forecast
+        run_forecast(args)
+        return
+    forecast_date = pd.Timestamp(args.forecast_date or EVAL_FORECAST_DATE)
 
     root_dir      = Path(__file__).resolve().parents[1]
     sims_root     = root_dir / "data" / "simulations"
@@ -1330,80 +1520,13 @@ def main() -> None:
     # but tag it 'blended_fallback' (not plain 'blended') so the map/chart can
     # still flag the station as low-confidence overall rather than implying
     # blended was validated the normal way.
-    model_used: dict[str, str] = {}
-    prob_by_station: dict[str, pd.Series] = {}
-    for _sid in set(op_blended_dict) | set(hier_prob_dict):
-        _tier = station_tier_map.get(_sid, 'not_ready')
-        _hier_ok = hier_reliable.get(_sid, True)  # benefit of the doubt if unchecked (no test event yet)
-        if _tier == 'ready' and _sid in op_blended_dict:
-            prob_by_station[_sid] = op_blended_dict[_sid]
-            model_used[_sid] = 'blended'
-        elif _sid in hier_prob_dict and _hier_ok:
-            prob_by_station[_sid] = hier_prob_dict[_sid]
-            model_used[_sid] = 'hierarchical'
-        elif _sid in op_blended_dict:
-            prob_by_station[_sid] = op_blended_dict[_sid]
-            model_used[_sid] = 'blended' if _hier_ok else 'blended_fallback'
-        else:
-            prob_by_station[_sid] = hier_prob_dict[_sid]
-            model_used[_sid] = 'hierarchical'
+    prob_by_station, model_used = _choose_models(
+        op_blended_dict, hier_prob_dict, station_tier_map, hier_reliable)
 
     # --- Generate stability plots (deferred so prob_by_station is available) ---
-    if plot_queue:
-        print(f"\nGenerating {len(plot_queue)} stability plots...")
-        for item in plot_queue:
-            sid = item['station_id']
-            print(f"  Plotting {item['pro_file'].name}...")
-            sid_model = model_used.get(sid, 'blended')
-            prob_series = prob_by_station.get(sid)
-            prob_lower = prob_upper = None
-            prob_bands = prob_thresholds = y_tickvals = y_ticktext = None
-            y_axis_type, y_range = 'linear', [0, 1]
-            y_tickformat, y_ticksuffix = '.0%', ''
-            curve_hovertemplate, curve_fill = 'Prob: %{y:.1%}<extra></extra>', 'tozeroy'
-            y_axis_title = 'Probability'
-            right_margin = 140
-            known_ref = hier_known_event_ref.get(sid)
-            if sid_model == 'hierarchical' and prob_series is not None and known_ref is not None:
-                lower_s, upper_s = hier_ci_dict.get(sid, (None, None))
-                axis = _hier_known_event_axis(prob_series, lower_s, upper_s, known_ref)
-                prob_series          = axis['prob_series']
-                prob_lower           = axis['prob_lower']
-                prob_upper           = axis['prob_upper']
-                prob_bands           = axis['prob_bands']
-                prob_thresholds      = axis['prob_thresholds']
-                y_axis_type          = axis['y_axis_type']
-                y_range              = axis['y_range']
-                y_tickformat         = axis['y_tickformat']
-                y_ticksuffix         = axis['y_ticksuffix']
-                y_axis_title         = axis['y_axis_title']
-                curve_hovertemplate  = axis['curve_hovertemplate']
-                curve_fill           = axis['curve_fill']
-                right_margin         = 280
-            plot_interactive_stability(
-                parse_snow_data(item['pro_file']),
-                item['out_path'],
-                sid,
-                event_dates=item['event_dates'],
-                test_dates=item['test_dates'],
-                prob_series=prob_series,
-                prob_lower=prob_lower, prob_upper=prob_upper,
-                prob_bands=prob_bands, prob_thresholds=prob_thresholds,
-                y_tickvals=y_tickvals, y_ticktext=y_ticktext, y_axis_title=y_axis_title,
-                y_axis_type=y_axis_type, y_range=y_range,
-                y_tickformat=y_tickformat, y_ticksuffix=y_ticksuffix,
-                curve_hovertemplate=curve_hovertemplate, curve_fill=curve_fill,
-                right_margin=right_margin,
-                daily_df=item['daily_df'],
-                forecast_date=item['forecast_date'],
-                aspect=_station_aspect(sid),
-                confidence_tier=_station_tier(sid, station_tier_map),
-                model_used=sid_model,
-                png_path=(out_dir / f"fig4_stability_{CASE_STUDY_STATION.replace('_res', '')}.png"
-                          if sid == CASE_STUDY_STATION else None),
-                png_rows=['prob'] if sid == CASE_STUDY_STATION else None,
-            )
-            print(f"  → {item['out_path']}  (model: {sid_model})")
+    _render_stability_plots(plot_queue, prob_by_station, model_used,
+                            hier_known_event_ref, hier_ci_dict, station_tier_map,
+                            png_dir=out_dir)
 
     def _window_max(sid: str | None) -> float:
         if sid is None or sid not in prob_by_station:
@@ -1415,47 +1538,9 @@ def main() -> None:
     df_all['forecast_prob'] = [_window_max(sid) for sid in df_all['station_id']]
 
     # --- Build per-station simulation metadata for the map overlay ---
-    sim_stations: list[dict] = []
-    for pro_file in sorted(sim_dir.glob('*.pro')):
-        coords = extract_pro_coordinates(pro_file)
-        if coords is None:
-            continue
-        lat, lon = coords
-        stem    = pro_file.stem
-        prob    = None
-        if stem in prob_by_station:
-            s = prob_by_station[stem]
-            win = s[(s.index >= win_start) & (s.index <= win_end)]
-            v   = float(win.max()) if not win.dropna().empty else None
-            prob = round(v, 4) if v is not None else None
-        reg_prob = None
-        if stem in regional_prob_dict:
-            s_reg = regional_prob_dict[stem]
-            win_reg = s_reg[(s_reg.index >= win_start) & (s_reg.index <= win_end)]
-            v_reg   = float(win_reg.max()) if not win_reg.dropna().empty else None
-            reg_prob = round(v_reg, 4) if v_reg is not None else None
-        # For a hierarchical-driven station, forecast_prob alone reads as a
-        # tiny, unalarming number (shrunk toward the ~1-2% regional base
-        # rate) — the same reason the chart itself is normalized (see
-        # _hier_known_event_axis). Carry the same ratio here so the map
-        # tooltip doesn't contradict the chart it links to.
-        known_ratio = None
-        if model_used.get(stem) == 'hierarchical' and prob is not None:
-            ref = hier_known_event_ref.get(stem)
-            if ref:
-                known_ratio = round(prob / ref, 3)
-        sim_stations.append({
-            'id':                stem,
-            'lat':               lat,
-            'lon':               lon,
-            'aspect':            _station_aspect(stem),
-            'forecast_prob':     prob,
-            'confidence_tier':   _station_tier(stem, station_tier_map),
-            'model_used':        model_used.get(stem, 'blended'),
-            'known_event_ratio': known_ratio,
-            'regional_prob':     reg_prob,
-            'url':               f"assets/{SEASON}/stability_{stem}.html",
-        })
+    sim_stations = _build_sim_stations(
+        sim_dir, SEASON, prob_by_station, regional_prob_dict, model_used,
+        hier_known_event_ref, station_tier_map, win_start, win_end)
 
     # --- Generate the map ---
     map_path = root_dir / "index.html"

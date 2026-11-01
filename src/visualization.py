@@ -103,7 +103,7 @@ def _get_dominant_layers(df: pd.DataFrame, z_tolerance: float = 3.0) -> pd.DataF
         sub['layer_label'] = label
         parts.append(sub)
 
-    return pd.concat(parts).sort_index() if parts else df.iloc[0:0]
+    return pd.concat(parts).sort_index() if parts else df.iloc[0:0].assign(layer_label='')
 
 
 # ── plotting ──────────────────────────────────────────────────────────────────
@@ -617,7 +617,8 @@ def plot_interactive_stability(
         return fig, slider_key, height
 
     html_fig, html_slider_key, html_height = _build(None)
-    html_fig.write_html(str(output_path))
+    # plotly.js from the CDN rather than embedded: ~4.6 MB less per chart.
+    html_fig.write_html(str(output_path), include_plotlyjs='cdn')
 
     if png_path is not None:
         if png_rows is not None:
@@ -626,7 +627,14 @@ def plot_interactive_stability(
             png_fig, png_slider_key, png_height = html_fig, html_slider_key, html_height
         png_fig.update_layout(**{png_slider_key: False})
         clean_fig = go.Figure(_sanitize_timestamps(png_fig.to_dict()))
-        clean_fig.write_image(str(png_path), width=1600, height=png_height, scale=2)
+        # Static export goes through kaleido, which (v1+) needs a Chrome
+        # install (`uv run kaleido_get_chrome`). The PNG is a paper figure,
+        # not part of the site, so a missing browser shouldn't stop the run.
+        try:
+            clean_fig.write_image(str(png_path), width=1600, height=png_height, scale=2)
+        except Exception as exc:  # kaleido raises several unrelated types here
+            print(f"    WARNING: PNG export skipped ({png_path.name}): "
+                  f"{type(exc).__name__} — run `uv run kaleido_get_chrome` to enable it")
 
 
 # ── map ───────────────────────────────────────────────────────────────────────
@@ -830,7 +838,9 @@ def _sim_layer_html(
                 var probLine = 'Prob: <b>' + probStr + '</b>';
                 if (pr.model_used === 'hierarchical' && pr.known_event_ratio !== null
                         && pr.known_event_ratio !== undefined) {{
-                    probLine += ' (' + pr.known_event_ratio.toFixed(1) + 'x a known avalanche day)';
+                    probLine += ' (' + pr.known_event_ratio.toFixed(1) + 'x a '
+                        + (pr.known_event_basis === 'regional' ? 'regional' : 'known')
+                        + ' avalanche day)';
                 }}
                 layer.bindTooltip(
                     '<b>' + pr.id.replace('_res','') + '</b><br>'
@@ -907,7 +917,7 @@ def _sim_layer_html(
                 if (probOverride !== null && s.id in probOverride) prob = probOverride[s.id];
                 return {{id:s.id, lat:s.lat, lon:s.lon, aspect:s.aspect,
                          forecast_prob:prob, confidence_tier:s.confidence_tier,
-                         model_used:s.model_used, known_event_ratio:s.known_event_ratio,
+                         model_used:s.model_used, known_event_ratio:s.known_event_ratio, known_event_basis:s.known_event_basis,
                          url:s.url}};
             }});
 
@@ -932,7 +942,7 @@ def _sim_layer_html(
                          geometry:{{type:'Point', coordinates:[s.lon, s.lat]}},
                          properties:{{id:s.id, aspect:s.aspect, forecast_prob:s.forecast_prob,
                                       confidence_tier:s.confidence_tier,
-                                      model_used:s.model_used, known_event_ratio:s.known_event_ratio,
+                                      model_used:s.model_used, known_event_ratio:s.known_event_ratio, known_event_basis:s.known_event_basis,
                                       url:s.url}}}};
             }});
             _simLayer.addData({{type:'FeatureCollection', features:features}});
@@ -1067,10 +1077,14 @@ def create_avalanche_map(
         df = df.copy()
         df['target_url'] = target_url
 
-    m = folium.Map(
-        location=[df['Latitude'].mean(), df['Longitude'].mean()],
-        zoom_start=9,
-    )
+    # Centre on the observations; with none (e.g. early in a forecast season)
+    # fall back to the simulation stations.
+    if df.empty and sim_stations:
+        centre = [float(np.mean([s['lat'] for s in sim_stations])),
+                  float(np.mean([s['lon'] for s in sim_stations]))]
+    else:
+        centre = [df['Latitude'].mean(), df['Longitude'].mean()]
+    m = folium.Map(location=centre, zoom_start=9)
     Geocoder().add_to(m)
 
     folium.TileLayer(
