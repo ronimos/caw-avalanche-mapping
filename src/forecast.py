@@ -39,6 +39,19 @@ from visualization import create_avalanche_map
 # Any id not in HierModel.station_list selects the population-level prior.
 _UNSEEN_STATION = "__population__"
 
+# Written next to index.html: Apache compresses the map and charts (large
+# inline JSON, ~85% smaller).  The caw.wac3.ch vhost allows .htaccess
+# overrides; elsewhere the file is ignored.
+HTACCESS = """\
+# Written by src/forecast.py.  Compress the forecast map and charts.
+# Apache picks brotli or gzip from the client's Accept-Encoding.
+<IfModule mod_brotli.c>
+    <IfModule mod_deflate.c>
+        AddOutputFilterByType BROTLI_COMPRESS;DEFLATE text/html text/css application/javascript application/json
+    </IfModule>
+</IfModule>
+"""
+
 
 def _load_tiers(out_dir: Path) -> dict[str, str]:
     """station_id → ready/marginal/not_ready from the last evaluation run."""
@@ -271,5 +284,6 @@ def run_forecast(args: argparse.Namespace) -> None:
     create_avalanche_map(df_map, map_path, forecast_date=forecast_date,
                          prob_by_station=prob_by_station, sim_stations=sim_stations,
                          highway_geojson=root_dir / "data" / "geo" / "pamir_highway.geojson")
+    (site_dir / ".htaccess").write_text(HTACCESS)
     print(f"\n→ Map: {map_path}")
     print(f"→ Charts: {assets_dir} ({len(plot_queue)} files)")
