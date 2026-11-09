@@ -269,6 +269,7 @@ def run_forecast(args: argparse.Namespace) -> None:
 
     map_path = site_dir / "index.html"
     create_avalanche_map(df_map, map_path, forecast_date=forecast_date,
-                         prob_by_station=prob_by_station, sim_stations=sim_stations)
+                         prob_by_station=prob_by_station, sim_stations=sim_stations,
+                         highway_geojson=root_dir / "data" / "geo" / "pamir_highway.geojson")
     print(f"\n→ Map: {map_path}")
     print(f"→ Charts: {assets_dir} ({len(plot_queue)} files)")

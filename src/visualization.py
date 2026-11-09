@@ -787,7 +787,6 @@ def _sim_layer_html(
     map_name: str,
     layer_ctrl_name: str,
     stations: list[dict],
-    prob_series_json: str = '{}',
 ) -> str:
     """
     Returns HTML+JS that adds a simulation-stations overlay and aspect-filter UI.
@@ -798,8 +797,9 @@ def _sim_layer_html(
         model_used ('blended' | 'hierarchical' — which model's probability
         forecast_prob actually is; drawn as a dashed ring when 'hierarchical')
 
-    prob_series_json: JSON-serialised dict  {station_id: {"YYYY-MM-DD": prob, ...}}
-        used to recolour _simLayer as the time player scrubs through dates.
+    Daily probabilities come from window._CAW_PROB_SERIES ({station_id:
+        {"YYYY-MM-DD": prob}}, written once by create_avalanche_map) and
+        recolour _simLayer as the time player scrubs through dates.
         The TimestampedGeoJson layer drives the time slider but its own circles are
         hidden (weight 0, fillOpacity 0) — _simLayer is the sole visual layer.
     """
@@ -836,7 +836,7 @@ def _sim_layer_html(
     <script>
     window.addEventListener('load', function() {{
         var _SIM        = {stations_js};
-        var _PROB_SERIES = {prob_series_json};  // {{station_id: {{"YYYY-MM-DD": prob}}}}
+        var _PROB_SERIES = window._CAW_PROB_SERIES || {{}};  // {{station_id: {{"YYYY-MM-DD": prob}}}}
 
         // Colour band of a station on a given probability: by probability for
         // blended stations, by probability / ratio_ref for hierarchical ones
@@ -1143,6 +1143,7 @@ def create_avalanche_map(
     forecast_date: pd.Timestamp | None = None,
     prob_by_station: dict[str, pd.Series] | None = None,
     sim_stations: list[dict] | None = None,
+    highway_geojson: Path | None = None,
 ) -> None:
     """
     Build and write a Folium forecast map.
@@ -1163,6 +1164,8 @@ def create_avalanche_map(
                          enables the time slider and date navigator recolouring.
         sim_stations:    List of station metadata dicts (id, lat, lon, aspect,
                          forecast_prob, confidence_tier, regional_prob, url).
+        highway_geojson: Road line (Pamir Highway, M41) drawn as a toggleable
+                         layer under the stations; skipped if None or missing.
     """
     if 'target_url' not in df.columns:
         df = df.copy()
@@ -1208,6 +1211,9 @@ def create_avalanche_map(
                 for _ts, _p in _clean.items()
             }
     prob_series_json = json.dumps(prob_series_dict)
+    # Embedded once; the obs script and the sim layer both read the global.
+    m.get_root().html.add_child(folium.Element(
+        f"<script>window._CAW_PROB_SERIES = {prob_series_json};</script>"))
 
     features = [
         {
@@ -1304,7 +1310,7 @@ def create_avalanche_map(
     window.addEventListener('load', function() {{
         var _obsLayer    = {obs_layer_name};
         var _map         = {map_name};
-        var _OBS_PROB_SERIES = {prob_series_json};
+        var _OBS_PROB_SERIES = window._CAW_PROB_SERIES || {{}};
 
         function _navDateToISOObs(dateStr) {{
             var d = new Date(dateStr);
@@ -1431,36 +1437,26 @@ def create_avalanche_map(
 
     # ── Time-series player: daily probability at each sim station ────────────
     if prob_by_station and sim_stations:
-        # Build a coord lookup: station_id → (lon, lat)
-        station_coords = {s['id']: (s['lon'], s['lat']) for s in sim_stations}
-
-        # Circles are invisible — they exist only to populate timeDimension so
-        # the time slider works.  _simLayer is the sole visual layer and
-        # recolours itself via setInterval polling timeDimension.getCurrentTime().
+        # One invisible placeholder per date, only so timeDimension knows the
+        # available times and the slider works.  _simLayer is the sole visual
+        # layer and recolours itself via setInterval polling
+        # timeDimension.getCurrentTime().  (One feature per station per day
+        # made ~25k Leaflet layers and a multi-second page load.)
         _invisible = {
             "fillColor": "transparent", "color": "transparent",
             "fillOpacity": 0, "weight": 0, "radius": 1,
         }
-        ts_features: list[dict] = []
-        for sid, series in prob_by_station.items():
-            coords = station_coords.get(sid)
-            if coords is None:
-                continue
-            for ts, p in series.dropna().items():
-                ts_features.append({
-                    "type": "Feature",
-                    "geometry": {"type": "Point", "coordinates": list(coords)},
-                    "properties": {
-                        "times":     [pd.Timestamp(ts).strftime('%Y-%m-%d')],
-                        "icon":      "circle",
-                        "iconstyle": _invisible,
-                        "popup": (f"<b>{sid.replace('_res','')}</b><br>"
-                                  f"{pd.Timestamp(ts).strftime('%b %d, %Y')}<br>"
-                                  f"Prob: {float(p)*100:.0f}%"),
-                    },
-                })
+        known = {s['id'] for s in sim_stations}
+        dates = sorted({pd.Timestamp(ts).strftime('%Y-%m-%d')
+                        for sid, series in prob_by_station.items() if sid in known
+                        for ts in series.dropna().index})
+        anchor = [sim_stations[0]['lon'], sim_stations[0]['lat']]
+        ts_features = [{
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": anchor},
+            "properties": {"times": [d], "icon": "circle", "iconstyle": _invisible},
+        } for d in dates]
 
-        td_layer_js_name: str | None = None
         if ts_features:
             TimestampedGeoJson(
                 {"type": "FeatureCollection", "features": ts_features},
@@ -1470,6 +1466,21 @@ def create_avalanche_map(
                 add_last_point=False,
             ).add_to(m)
 
+    if highway_geojson is not None and Path(highway_geojson).exists():
+        hwy_layer = folium.FeatureGroup(name='Pamir Highway (M41)', show=True)
+        # ~4 decimals (~10 m) is plenty at map zoom and halves the payload.
+        hwy = json.loads(Path(highway_geojson).read_text())
+        for f in hwy['features']:
+            g = f['geometry']
+            g['coordinates'] = [[[round(x, 4), round(y, 4)] for x, y, *_ in line]
+                                for line in g['coordinates']]
+        folium.GeoJson(
+            hwy,
+            style_function=lambda _: {'color': '#d7191c', 'weight': 4, 'opacity': 0.8},
+            tooltip='Pamir Highway (M41)',
+        ).add_to(hwy_layer)
+        hwy_layer.add_to(m)
+
     layer_ctrl = folium.LayerControl()
     layer_ctrl.add_to(m)
 
@@ -1478,7 +1489,6 @@ def create_avalanche_map(
         m.get_root().html.add_child(
             folium.Element(_sim_layer_html(
                 m.get_name(), layer_ctrl.get_name(), sim_stations,
-                json.dumps(prob_series_dict),
             ))
         )
 

@@ -45,7 +45,7 @@ Flags: `--retrain` (otherwise models load from `models/`), `--no-hierarchical` (
 data/simulations/<SEASON>/*.pro,*.smet   SNOWPACK output per season (2026-2027 not committed: 48 MB, changes daily)
 data/observations/avalanches_<SEASON>.csv observations, all seasons loaded together
 data/FOCUS_Ava.kml                       WMP points; nearest station to each = forecast baseline
-data/WMP_Locations-2024.csv              WMP village list (2024); adds villages not in the KML (skips > 10 km from any station)
+data/WMP_Locations-2024.csv              WMP village list (2024); adds villages not in the KML (out-of-domain ones get their nearest station, with a warning)
 data/geo/pamir_highway.geojson           M41 route (OSM relation 180104, ODbL); stations within 8 km join the forecast set (--highway)
 ```
 

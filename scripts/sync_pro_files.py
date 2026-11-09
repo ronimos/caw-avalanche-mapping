@@ -10,8 +10,9 @@ Two selection modes:
       files (flat + N/E/S/W) per station.  KML: every Point placemark.  CSV:
       the WMP village list (Village Name, Lat, Long); repeat --focus to combine
       files.  CSV points named like an earlier point (FA-/FP- prefix ignored)
-      or within DEDUP_KM of one are skipped, and points with no station
-      within MAX_MATCH_KM (outside the SNOWPACK domain) are left out.  Station
+      or within DEDUP_KM of one are skipped.  Points with no station within
+      MAX_MATCH_KM (outside the SNOWPACK domain) still get their nearest
+      station, with a warning.  Station
       coordinates are read from the .pro headers of the source run, so the
       source must be a local directory.  A manifest
       (focus_stations.csv: point → station, distance) is written next to the
@@ -60,7 +61,7 @@ SSH_KEY      = Path(os.environ.get("SSH_KEY", str(Path.home() / ".ssh" / "my_key
 KML_NS       = {"k": "http://www.opengis.net/kml/2.2"}
 ALL_SUFFIXES = ["", *ASPECT_SUFFIX.values()]
 DEDUP_KM     = 2.0   # WMP CSV coordinates are rounded to 0.01° (~1 km)
-MAX_MATCH_KM = 10.0  # farther than this, the point is outside the SNOWPACK domain
+MAX_MATCH_KM = 10.0  # farther than this, the point is outside the SNOWPACK domain (warn only)
 HWY_MAX_KM   = 8.0   # SNOWPACK grid spacing; beyond this the road is outside the domain
 # M41 route geometry from OpenStreetMap (© OpenStreetMap contributors, ODbL)
 PAMIR_HWY    = ROOT / "data" / "geo" / "pamir_highway.geojson"
@@ -195,9 +196,8 @@ def match_focus_points(paths: list[Path], source: Path) -> pd.DataFrame:
         dists = [_haversine_km(p.lat, p.lon, s.lat, s.lon) for s in stations.itertuples()]
         i = min(range(len(dists)), key=dists.__getitem__)
         if dists[i] > MAX_MATCH_KM:
-            print(f"  skip {p.point}: nearest station {stations.iloc[i].station} is "
-                  f"{dists[i]:.0f} km away (outside the SNOWPACK domain)")
-            continue
+            print(f"  WARNING: {p.point} is outside the SNOWPACK domain; nearest station "
+                  f"{stations.iloc[i].station} is {dists[i]:.0f} km away")
         s = stations.iloc[i]
         rows.append({
             "point": p.point, "point_lat": p.lat, "point_lon": p.lon,
