@@ -1,0 +1,105 @@
+﻿Country,Province,AKDN ID,Village Name,Lat,Long,Elevation,Elevation Top Mountain,Snow Mast Lat,Snow Mast Long,Snow Mast Elevation,Active Flag,Comments
+Afghanistan,Badakhshan,AF-9000277,Dad Ali,71.13,37.36,2930,3932,,,,TRUE,Added on 18th Oct 2023
+Afghanistan,Badakhshan,AF-9000273,Taq Archa,70.90,37.44,2780,3353,,,,TRUE,added on 18th Oct 2023
+Pakistan,Gilgit Baltistan,PK-500652,Jalalabad,36.55,73.81,2513,2513,,,,TRUE,Added on 18th Feb 2022
+Tajikistan,GBAO,TJ-900240,Raviv,38.03,71.53,2211,4880,38.06,71.90,2561,FALSE,Need to remove from backend
+Afghanistan,Badakhshan,AF-900358,Barghud,38.15,71.24,2537,2945,38.15,71.24,2830,TRUE,
+Tajikistan,GBAO,TJ-9000991,PoiMazor,38.65,71.96,2369,4200,38.65,71.97,2566,TRUE,Added on 23rd Sep 2018
+Pakistan,Gilgit Baltistan,PK-501910,Jaffarabad,36.24,74.40,2030,4580,,,,TRUE,Added on 1st Jan
+Afghanistan,Baghlan,AF-900460,Chardar,35.24,68.36,2095,3508,,,,TRUE,Added on 1st Jan
+Pakistan,Gilgit Baltistan,PK-500673,Pingal,36.16,73.11,2510,4280,36.15,73.14,3298,TRUE,Shifted from PK-501920 (Derani)
+Pakistan,Gilgit Baltistan,PK-504868,Singal,36.11,73.90,1925,4120,36.09,73.90,3070,TRUE,"Added on 9th Feb, 2017"
+Pakistan,Gilgit Baltistan,PK-504858,Umalsat,36.57,73.44,2635,4450,,,,TRUE,"Added on 9th Feb, 2017"
+Pakistan,Khyber Pakhtunkhwa,PK-503943,Rumbore,35.77,71.69,1940,3400,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502249,Zondramgram Terich,36.39,72.22,2630,3950,36.39,72.22,2927,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-503976,Ocho gole,36.00,71.63,2460,3400,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-503268,Murdan Shagram,36.02,71.58,2845,3600,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502520,Harchin,36.10,72.47,2770,4000,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-503876,Pech Ouch,36.08,71.68,2230,3000,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500029,Mergram1,36.26,72.37,2230,3050,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502611,Brep ,36.42,72.66,2620,4350,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502421,Washich,36.49,72.42,2470,3200,36.49,72.41,3020,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502358,Ruah,36.68,72.60,2901,3900,36.68,72.61,3250,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502085,Purkhot,36.51,72.57,3334,3800,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-501999,Parich,36.59,72.53,2690,3600,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502600,Persing,36.42,72.29,2591,3200,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502251,Zhupu,36.59,72.90,2700,3200,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-501104,Yarkhun Lasht,36.80,73.02,3246,4000,36.80,73.02,3369,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502005,Yakhdiz,36.49,72.49,2909,3400,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-504628,Wadinkot/Garamchashma,36.81,73.27,3315,4100,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502355,Sonoghor,36.28,72.41,2212,3000,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502678,Shost,36.76,72.94,3039,3800,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502039,Sarghoz,36.27,72.47,2250,3200,36.27,72.47,2675,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-504630,Chikar Broghil,36.81,73.32,3435,4100,,,,FALSE,
+Pakistan,Khyber Pakhtunkhwa,PK-500002,Bang,36.54,72.78,2607,4200,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-502050,Balim Laspur,36.06,72.44,2905,4000,36.06,72.44,3286,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-503404,Wakht,35.99,71.52,2560,3400,35.97,71.53,2768,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500344,Sipokht,36.03,71.41,2825,3800,36.04,71.42,3409,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500333,Shershal,36.05,71.76,2532,3100,36.04,71.75,2913,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500318,Rabat Mukhi/afzalabad,36.19,71.67,2574,3200,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500809,Postaki,35.99,71.54,2570,3800,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500016,Parsan,36.05,71.85,3029,3030,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-504361,Kiyar,36.10,71.85,3062,4000,36.10,71.87,3766,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500172,Birzeen,36.00,71.46,2550,3200,,,,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500135,Besti Arkari,36.16,71.59,2958,3600,36.16,71.58,3191,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-500993,Begusht,35.94,71.53,2830,3500,35.93,71.53,3125,TRUE,
+Pakistan,Khyber Pakhtunkhwa,PK-501669,Madaklasht,35.80,72.06,2850,4000,35.81,72.05,3260,TRUE,
+Pakistan,Gilgit Baltistan,PK-503007,Bar Nagar,36.38,74.28,2378,4000,,,,FALSE,Removed on Nov 2017
+Pakistan,Gilgit Baltistan,PK-502317,Zudkhun,36.83,74.43,3298,4200,,,,TRUE,
+Pakistan,Gilgit Baltistan,PK-502565,Yarzrich,36.73,74.72,3054,4200,36.73,74.71,3800,TRUE,
+Pakistan,Gilgit Baltistan,PK-501803,Shimshal,36.44,75.32,3068,4300,36.44,75.28,3743,TRUE,
+Pakistan,Gilgit Baltistan,PK-502956,Misgar,36.79,74.76,3109,4500,,,,TRUE,
+Pakistan,Gilgit Baltistan,PK-504569,Qurqulti,36.42,73.45,2945,4000,36.42,73.47,3883,TRUE,
+Pakistan,Gilgit Baltistan,PK-504606,Noh,36.31,73.38,2310,3700,,,,TRUE,
+Pakistan,Gilgit Baltistan,PK-501920,Derani,36.13,74.04,2143,3400,,,,FALSE,Shifted at PK-500673 (Pingal)
+Pakistan,Gilgit Baltistan,PK-500178,Darkut,36.64,73.46,2750,3500,36.65,73.45,3443,TRUE,
+Pakistan,Gilgit Baltistan,PK-504704,Dapis,36.48,73.30,2689,3100,36.50,73.31,3635,TRUE,
+Pakistan,Gilgit Baltistan,PK-504547,Baltering Nazber,36.40,73.28,2602,4100,36.39,73.25,3273,TRUE,
+Pakistan,Gilgit Baltistan,PK-502640,Matramdan,36.66,74.05,3042,4500,36.66,74.04,3312,TRUE,
+Pakistan,Gilgit Baltistan,PK-503745,Immit,36.50,73.90,2354,3500,36.49,73.89,3210,TRUE,
+Pakistan,Gilgit Baltistan,PK-504526,Rahimabad,36.15,73.28,2660,4000,36.14,73.28,3318,TRUE,
+Pakistan,Gilgit Baltistan,PK-502223,Phander,36.17,72.93,2904,4500,36.14,72.87,3703,TRUE,
+Pakistan,Gilgit Baltistan,PK-504497,Julijali,36.20,73.26,2330,3350,36.19,73.27,3348,TRUE,
+Pakistan,Gilgit Baltistan,PK-502616,Barsat,36.16,72.70,3270,4500,36.17,72.70,3768,TRUE,
+Afghanistan,Badakhshan,AF-900320,Wereezn,37.65,71.52,2133,3912,37.65,71.51,2529,TRUE,
+Afghanistan,Badakhshan,AF-900155,Ullarip,36.81,70.86,1805,2524,,,,TRUE,
+Afghanistan,Badakhshan,AF-900284,Toot Darra,36.87,70.49,2095,2630,,,,TRUE,Inactive on 1st Oct 2018 & Active on 13 Nov 2018
+Afghanistan,Badakhshan,AF-900368,Purtel,38.33,70.71,2511,3504,,,,TRUE,
+Afghanistan,Badakhshan,AF-516752,Parabir,37.89,71.15,1991,4284,37.87,71.14,2342,TRUE,
+Afghanistan,Badakhshan,AF-900270,Pandara,37.30,70.98,2559,3099,,,,FALSE,Inactive due to security reason
+Afghanistan,Badakhshan,AF-900339,Panam,35.84,70.85,2915,4273,,,,FALSE,Inactive due to security reason
+Afghanistan,Badakhshan,AF-900158,Ners,36.99,73.30,3233,5133,,,,TRUE,
+Afghanistan,Badakhshan,AF-900488,Meyanadeh,38.28,70.81,2416,3001,,,,TRUE,
+Afghanistan,Badakhshan,AF-900486,Mahnaw,38.38,71.13,2209,3634,,,,TRUE,
+Afghanistan,Badakhshan,AF-900278,Khinj,37.00,72.38,2706,3308,,,,FALSE,Inactive due to security reason
+Afghanistan,Badakhshan,AF-900237,Gharanbala,37.21,71.44,2783,3722,,,,TRUE,
+Afghanistan,Badakhshan,AF-900183,Flakhmadek,36.45,71.31,2753,3296,,,,TRUE,
+Afghanistan,Takhar,AF-900392,Bedi Ashuk,36.12,70.24,2288,4122,,,,TRUE,
+Afghanistan,Badakhshan,AF-900351,Arkhy,36.53,71.00,2729,3099,,,,FALSE,Inactive due to security reason
+Afghanistan,Badakhshan,AF-900235,Arakht,37.38,71.41,2699,3982,37.37,71.41,2813,TRUE,
+Afghanistan,Badakhshan,AF-900167,Aabgarch,37.00,72.69,2851,3270,,,,TRUE,
+Tajikistan,GBAO,TJ-900015,Yoged,38.35,70.64,1176,1996,,,,TRUE,"Removed on Nov 2017, Reactivated on Jan, 2018"
+Tajikistan,GBAO,TJ-900278,Vrang,37.00,72.38,2930,4926,,,,TRUE,
+Tajikistan,GBAO,TJ-900197,Ver,37.73,72.07,2901,3937,,,,TRUE,
+Tajikistan,GBAO,TJ-900218,Vanj center,38.38,71.47,1739,3190,,,,TRUE,
+Tajikistan,GBAO,TJ-900171,Tavdem,37.39,71.67,2397,4004,,,,TRUE,
+Tajikistan,GBAO,TJ-900241,Siponj,38.06,71.88,2178,3502,38.06,71.90,2561,TRUE,Snow Mast added on 14-12-2018
+Tajikistan,GBAO,TJ-900060,Shujand,37.96,71.63,2007,4853,37.98,71.63,2284,TRUE,
+Tajikistan,GBAO,TJ-900049,Shaymoq,37.53,74.83,3845,4625,,,,FALSE,Inactive on 13th Sep 2018
+Tajikistan,GBAO,TJ-900239,Rukhch,38.36,72.50,2665,4545,38.36,72.49,2840,TRUE,
+Tajikistan,GBAO,TJ-900243,Pastkhuf,37.86,71.60,2096,4144,,,,TRUE,
+Tajikistan,GBAO,TJ-900195,Oqmamad,37.70,72.19,3008,4825,,,,TRUE,
+Tajikistan,GBAO,TJ-900186,Nishusp,37.32,71.50,2242,3328,37.31,71.52,2851,TRUE,
+Tajikistan,GBAO,TJ-900088,Murghob center,38.18,73.99,3618,3896,,,,FALSE,Inactive on 13th Sep 2018
+Tajikistan,GBAO,TJ-900248,Mun,37.66,71.81,2591,3381,37.67,71.85,2945,TRUE,
+Tajikistan,GBAO,TJ-900174,Motrawn,38.19,71.44,1710,2436,,,,TRUE,
+Tajikistan,GBAO,TJ-900039,Kuhi La’l,37.18,71.47,2518,3730,37.18,71.47,3050,TRUE,
+Tajikistan,GBAO,TJ-900181,Khorugh,37.49,71.55,2100,3933,,,,TRUE,
+Tajikistan,GBAO,TJ-900329,Javshangoz,37.36,72.44,3450,3926,,,,FALSE,Removed on Nov 2017
+Tajikistan,GBAO,TJ-900266,Derzud,37.96,71.50,2034,3103,,,,TRUE,
+Tajikistan,GBAO,TJ-900150,Buweth,37.60,71.51,2110,2906,,,,FALSE,Removed on Nov 2017
+Tajikistan,GBAO,TJ-900091,Boghev,37.53,71.67,2315,2765,,,,TRUE,
+Tajikistan,GBAO,TJ-900206,Bidizi Poyon,37.31,71.75,2600,4297,,,,TRUE,
+Tajikistan,GBAO,TJ-900191,Batchor,37.74,72.54,3334,5116,,,,TRUE,
+Tajikistan,GBAO,TJ-900204,Ambav,37.21,71.84,2785,4539,,,,TRUE,
+Tajikistan,GBAO,TJ-900048,Alichor,37.75,73.25,3884,4745,,,,FALSE,Inactive on 13th Sep 2018

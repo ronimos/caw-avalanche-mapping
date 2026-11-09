@@ -42,19 +42,15 @@ import shutil
 from pathlib import Path
 
 import folium
-import numpy as np
 from folium.plugins import Geocoder, MousePosition
 import pandas as pd
 
-from sync_pro_files import _haversine_km, read_run_stations
+from sync_pro_files import HWY_MAX_KM, PAMIR_HWY, highway_stations, read_run_stations
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = Path("/mnt/HC_Volume_106760790/model/snowpack/runs/output.caw.2026")
-HWY_MAX_KM = 8.0  # SNOWPACK grid spacing; beyond this the road is outside the domain
 ESRI_SAT = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
             "World_Imagery/MapServer/tile/{z}/{y}/{x}")
-# M41 route geometry from OpenStreetMap (© OpenStreetMap contributors, ODbL)
-PAMIR_HWY = ROOT / "data" / "geo" / "pamir_highway.geojson"
 EDITOR_JS = Path(__file__).with_name("focus_map_editor.js")
 SAVE_PHP  = Path(__file__).with_name("save_model_locations.php")
 
@@ -68,35 +64,6 @@ def station_colours(stations: list[str]) -> dict[str, str]:
         r, g, b = colorsys.hls_to_rgb(hue, light, 0.85)
         colours[sid] = f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
     return colours
-
-
-def highway_stations(st: pd.DataFrame, max_km: float = HWY_MAX_KM,
-                     step_km: float = 1.0) -> pd.DataFrame:
-    """
-    Nearest run station to each point along the Pamir Highway, sampled every
-    `step_km` (OSM vertices can be far apart on straight stretches).  Stations
-    more than `max_km` from the road — one grid spacing — are dropped: there
-    the road has left the SNOWPACK domain and the "nearest" station is not near.
-    Returns one row per station with its minimum distance to the road.
-    """
-    lat_r, lon_r = np.radians(st["lat"].to_numpy()), np.radians(st["lon"].to_numpy())
-
-    best: dict[int, float] = {}
-    for line in json.loads(PAMIR_HWY.read_text())["features"][0]["geometry"]["coordinates"]:
-        for (lon0, lat0), (lon1, lat1) in zip(line, line[1:]):
-            seg_km = _haversine_km(lat0, lon0, lat1, lon1)
-            for t in np.linspace(0, 1, max(2, int(seg_km / step_km) + 1)):
-                lat, lon = np.radians(lat0 + t * (lat1 - lat0)), np.radians(lon0 + t * (lon1 - lon0))
-                a = (np.sin((lat_r - lat) / 2) ** 2
-                     + np.cos(lat_r) * np.cos(lat) * np.sin((lon_r - lon) / 2) ** 2)
-                d = 2 * 6371.0 * np.arcsin(np.sqrt(a))
-                i = int(d.argmin())
-                if d[i] <= max_km and d[i] < best.get(i, np.inf):
-                    best[i] = float(d[i])
-
-    out = st.iloc[list(best)].copy()
-    out["distance_km"] = [round(best[i], 2) for i in best]
-    return out.sort_values("lon").reset_index(drop=True)
 
 
 def build_map(df: pd.DataFrame, run_stations: pd.DataFrame, season: str, run_dir: Path,
@@ -149,7 +116,10 @@ def build_map(df: pd.DataFrame, run_stations: pd.DataFrame, season: str, run_dir
         "viewer_url": f"/nwp/caw/conditions/profiles.html?year={season[:4]}&id=",
         "stations": [[str(r.station), round(r.lat, 5), round(r.lon, 5), round(r.elevation)]
                      for r in run_stations.itertuples()],
-        "baseline": {sid: list(g["point"]) for sid, g in df.groupby("station")},
+        # Baseline = what sync_pro_files.py --focus ... --highway copies.
+        "baseline": {**({str(r.station): ["Pamir Highway"] for r in hwy_stations.itertuples()}
+                        if hwy_stations is not None else {}),
+                     **{sid: list(g["point"]) for sid, g in df.groupby("station")}},
         "colours":  colours,
         "points":   [[r.point, r.point_lat, r.point_lon, r.station, float(r.distance_km), colours[r.station]]
                      for r in df.itertuples()],

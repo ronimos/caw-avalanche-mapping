@@ -6,12 +6,19 @@ Two selection modes:
 
   observations (default) — one .pro/.smet pair per unique (nearest-station,
       aspect) combination found across all avalanches_*.csv files.
-  --focus KML            — the nearest station to every Point placemark in the
-      KML, with all five files (flat + N/E/S/W) per station.  Station
+  --focus KML|CSV        — the nearest station to every point, with all five
+      files (flat + N/E/S/W) per station.  KML: every Point placemark.  CSV:
+      the WMP village list (Village Name, Lat, Long); repeat --focus to combine
+      files.  CSV points named like an earlier point (FA-/FP- prefix ignored)
+      or within DEDUP_KM of one are skipped, and points with no station
+      within MAX_MATCH_KM (outside the SNOWPACK domain) are left out.  Station
       coordinates are read from the .pro headers of the source run, so the
       source must be a local directory.  A manifest
       (focus_stations.csv: point → station, distance) is written next to the
       copied files.
+
+  --highway              — also every station within HWY_MAX_KM of the Pamir
+      Highway (data/geo/pamir_highway.geojson), all aspects.  Needs --source.
 
   --selection JSON       — Add / Remove edits exported from the focus map
       editor (model_locations.json), applied on top of the --focus baseline
@@ -25,7 +32,7 @@ Usage:
     uv run python scripts/sync_pro_files.py [--dry-run]
     uv run python scripts/sync_pro_files.py --season 2026-2027 \\
         --source /mnt/HC_Volume_106760790/model/snowpack/runs/output.caw.2026 \\
-        --focus data/FOCUS_Ava.kml --selection data/model_locations.json --prune
+        --focus data/FOCUS_Ava.kml --focus data/WMP_Locations-2024.csv --selection data/model_locations.json --prune
 """
 
 import argparse
@@ -37,6 +44,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +59,11 @@ STATIONS_CSV = ROOT / "data" / "snowpack_stations_locations.csv"
 SSH_KEY      = Path(os.environ.get("SSH_KEY", str(Path.home() / ".ssh" / "my_key.pem"))).expanduser()
 KML_NS       = {"k": "http://www.opengis.net/kml/2.2"}
 ALL_SUFFIXES = ["", *ASPECT_SUFFIX.values()]
+DEDUP_KM     = 2.0   # WMP CSV coordinates are rounded to 0.01° (~1 km)
+MAX_MATCH_KM = 10.0  # farther than this, the point is outside the SNOWPACK domain
+HWY_MAX_KM   = 8.0   # SNOWPACK grid spacing; beyond this the road is outside the domain
+# M41 route geometry from OpenStreetMap (© OpenStreetMap contributors, ODbL)
+PAMIR_HWY    = ROOT / "data" / "geo" / "pamir_highway.geojson"
 
 
 def load_env() -> dict[str, str]:
@@ -112,6 +125,45 @@ def read_kml_points(kml: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def read_csv_points(csv: Path) -> pd.DataFrame:
+    """
+    Name/lat/lon of every row of a WMP locations CSV (Village Name, Lat, Long).
+    Some rows have Lat and Long swapped; in this domain latitude is always the
+    smaller value, so those are swapped back.  Inactive rows are kept, as in
+    the KML.
+    """
+    df = pd.read_csv(csv, encoding="utf-8-sig")
+    rows = []
+    for name, lat, lon in zip(df["Village Name"], df["Lat"].astype(float), df["Long"].astype(float)):
+        if lat > lon:
+            lat, lon = lon, lat
+        rows.append({"point": f"WMP-{str(name).strip()}", "lat": lat, "lon": lon})
+    return pd.DataFrame(rows)
+
+
+def read_focus_points(paths: list[Path]) -> pd.DataFrame:
+    """Points from KML/CSV files in order; CSV points already in an earlier file are dropped."""
+    def key(name: str) -> str:
+        return re.sub(r"^(FA|FP|WMP)-", "", name).strip().lower()
+
+    points = pd.DataFrame(columns=["point", "lat", "lon"])
+    for path in paths:
+        if path.suffix.lower() == ".kml":
+            new = read_kml_points(path)
+        else:
+            new = read_csv_points(path)
+            names = {key(n) for n in points["point"]}
+            near = [key(p.point) in names
+                    or any(_haversine_km(p.lat, p.lon, q.lat, q.lon) < DEDUP_KM
+                           for q in points.itertuples())
+                    for p in new.itertuples()]
+            print(f"{path.name}: {len(new)} point(s), {sum(near)} already covered "
+                  f"(same name or < {DEDUP_KM:.0f} km)")
+            new = new[[not n for n in near]]
+        points = pd.concat([points, new], ignore_index=True)
+    return points
+
+
 def read_run_stations(source: Path) -> pd.DataFrame:
     """Station id/lat/lon/elevation from the flat .pro header of each station folder."""
     rows = []
@@ -134,14 +186,18 @@ def read_run_stations(source: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def match_focus_points(kml: Path, source: Path) -> pd.DataFrame:
-    """Nearest run station for every KML point (one row per point)."""
-    points   = read_kml_points(kml)
+def match_focus_points(paths: list[Path], source: Path) -> pd.DataFrame:
+    """Nearest run station for every focus point (one row per point)."""
+    points   = read_focus_points(paths)
     stations = read_run_stations(source)
     rows = []
     for p in points.itertuples():
         dists = [_haversine_km(p.lat, p.lon, s.lat, s.lon) for s in stations.itertuples()]
         i = min(range(len(dists)), key=dists.__getitem__)
+        if dists[i] > MAX_MATCH_KM:
+            print(f"  skip {p.point}: nearest station {stations.iloc[i].station} is "
+                  f"{dists[i]:.0f} km away (outside the SNOWPACK domain)")
+            continue
         s = stations.iloc[i]
         rows.append({
             "point": p.point, "point_lat": p.lat, "point_lon": p.lon,
@@ -149,6 +205,36 @@ def match_focus_points(kml: Path, source: Path) -> pd.DataFrame:
             "station_elevation": s.elevation, "distance_km": round(dists[i], 2),
         })
     return pd.DataFrame(rows)
+
+
+def highway_stations(st: pd.DataFrame, max_km: float = HWY_MAX_KM,
+                     step_km: float = 1.0) -> pd.DataFrame:
+    """
+    Nearest run station to each point along the Pamir Highway, sampled every
+    `step_km` (OSM vertices can be far apart on straight stretches).  Stations
+    more than `max_km` from the road — one grid spacing — are dropped: there
+    the road has left the SNOWPACK domain and the "nearest" station is not near.
+    Returns one row per station with its minimum distance to the road.
+    """
+    lat_r, lon_r = np.radians(st["lat"].to_numpy()), np.radians(st["lon"].to_numpy())
+
+    best: dict[int, float] = {}
+    for line in json.loads(PAMIR_HWY.read_text())["features"][0]["geometry"]["coordinates"]:
+        for (lon0, lat0), (lon1, lat1) in zip(line, line[1:]):
+            seg_km = _haversine_km(lat0, lon0, lat1, lon1)
+            for t in np.linspace(0, 1, max(2, int(seg_km / step_km) + 1)):
+                lat, lon = np.radians(lat0 + t * (lat1 - lat0)), np.radians(lon0 + t * (lon1 - lon0))
+                a = (np.sin((lat_r - lat) / 2) ** 2
+                     + np.cos(lat_r) * np.cos(lat) * np.sin((lon_r - lon) / 2) ** 2)
+                d = 2 * 6371.0 * np.arcsin(np.sqrt(a))
+                i = int(d.argmin())
+                if d[i] <= max_km and d[i] < best.get(i, np.inf):
+                    best[i] = float(d[i])
+
+    out = st.iloc[list(best)].copy()
+    out["distance_km"] = [round(best[i], 2) for i in best]
+    return out.sort_values("lon").reset_index(drop=True)
+
 
 
 ASPECT_NAME_SUFFIX = {"Flat": "", **ASPECT_SUFFIX}
@@ -229,8 +315,11 @@ def main() -> None:
                         help="Destination season folder under data/simulations/ (default: 2024-2025).")
     parser.add_argument("--source", type=Path,
                         help="Local SNOWPACK run directory. Omit to pull from the remote server over SSH.")
-    parser.add_argument("--focus", type=Path,
-                        help="KML of point locations: copy the nearest station (all aspects) to each point.")
+    parser.add_argument("--focus", type=Path, action="append",
+                        help="KML or WMP CSV of point locations: copy the nearest station (all aspects) "
+                             "to each point. Repeat to combine files.")
+    parser.add_argument("--highway", action="store_true",
+                        help=f"Also copy every station within {HWY_MAX_KM:.0f} km of the Pamir Highway (all aspects).")
     parser.add_argument("--selection", type=Path,
                         help="model_locations.json from the focus map editor: Add/Remove station aspects.")
     parser.add_argument("--prune", action="store_true",
@@ -263,10 +352,10 @@ def main() -> None:
         if args.source is None:
             sys.exit("ERROR: --focus needs a local --source (station coordinates come from .pro headers)")
         matches = match_focus_points(args.focus, args.source)
-        print(f"{len(matches)} point(s) in {args.focus} → {matches['station'].nunique()} nearest station(s); "
+        print(f"{len(matches)} point(s) in {', '.join(p.name for p in args.focus)} → {matches['station'].nunique()} nearest station(s); "
               f"distance median {matches['distance_km'].median():.1f} km, max {matches['distance_km'].max():.1f} km")
         pairs = sorted((sid, sfx) for sid in matches["station"].unique() for sfx in ALL_SUFFIXES)
-    elif args.selection:
+    elif args.selection or args.highway:
         matches = None
         pairs   = []
     else:
@@ -276,6 +365,13 @@ def main() -> None:
         for base_id, suffix in pairs:
             aspect_label = {v: k for k, v in ASPECT_SUFFIX.items()}.get(suffix, 'flat')
             print(f"  {base_id}{suffix}_res.pro  [{aspect_label}]")
+    if args.highway:
+        if args.source is None:
+            sys.exit("ERROR: --highway needs a local --source (station coordinates come from .pro headers)")
+        hwy = highway_stations(read_run_stations(args.source))
+        new = set(hwy["station"]) - {sid for sid, _ in pairs}
+        print(f"Pamir Highway: {len(hwy)} station(s) within {HWY_MAX_KM:.0f} km of the road, {len(new)} new")
+        pairs = sorted(set(pairs) | {(sid, sfx) for sid in hwy["station"] for sfx in ALL_SUFFIXES})
     if args.selection:
         if args.source is None:
             sys.exit("ERROR: --selection needs a local --source")

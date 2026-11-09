@@ -5,7 +5,8 @@
 // set of aspects.  Save posts the edits to save_model_locations.php, which
 // keeps one shared model_locations.json (with a timestamped backup of the
 // previous version) for scripts/sync_pro_files.py --selection to apply on top
-// of the baseline (nearest station to every WMP point, all aspects).  Unsaved
+// of the baseline (nearest station to every WMP point and the Pamir Highway
+// stations, all aspects).  Unsaved
 // edits are kept as a draft in this browser.  Without the PHP endpoint (e.g.
 // opened as a local file) Download / Import still work.
 //
@@ -162,7 +163,7 @@ window.addEventListener('load', function () {
     let aspects = new Set(cur ? cur.aspects : ASPECTS);
 
     const status = baseline[id]
-      ? `In the baseline (WMP: ${baseline[id].join(', ')}) — all aspects`
+      ? `In the baseline (${baseline[id].join(', ')}) — all aspects`
       : 'Not in the baseline';
     const extra = [];
     if (hwy[id] !== undefined) extra.push(`${hwy[id].toFixed(1)} km from the Pamir Highway`);
@@ -399,7 +400,7 @@ window.addEventListener('load', function () {
   function exportDoc() {
     return {schema: 'caw-model-locations/1', season: D.season, run_dir: D.run_dir,
       exported: new Date().toISOString(),
-      baseline: 'nearest SNOWPACK station to each WMP point in data/FOCUS_Ava.kml, all aspects',
+      baseline: 'nearest SNOWPACK station to each WMP point (data/FOCUS_Ava.kml, data/WMP_Locations-2024.csv) and stations within 8 km of the Pamir Highway, all aspects',
       aspects: {Flat: '', N: '1', E: '2', S: '3', W: '4'},
       selections: Object.values(sel)};
   }

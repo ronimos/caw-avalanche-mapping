@@ -16,6 +16,7 @@ wheels/
 plots/
 output/
 *.csv
+!data/WMP_Locations-2024.csv
 
 # Cached DEM tiles and path atlas (regenerate with terrain.build_path_atlas)
 data/dem/

@@ -4,8 +4,9 @@
 #
 #   30 11 * * * /home/ops/post-processing/caw-avalanche-mapping/scripts/daily_forecast.sh
 #
-# Station set: nearest station to every WMP point (data/FOCUS_Ava.kml), all
-# aspects, plus/minus the Add/Remove edits saved from the focus map editor.
+# Station set: nearest station to every WMP point (data/FOCUS_Ava.kml and
+# data/WMP_Locations-2024.csv) and every station within 8 km of the Pamir
+# Highway, all aspects, plus/minus the Add/Remove edits saved from the focus map editor.
 set -euo pipefail
 
 REPO=/home/ops/post-processing/caw-avalanche-mapping
@@ -28,7 +29,7 @@ echo "=== $(date -u +%FT%TZ) daily forecast start"
 cd "$REPO"
 export PYTHONWARNINGS=ignore   # sklearn feature-name warnings flood the log
 
-sync_args=(--season "$SEASON" --source "$SOURCE" --focus data/FOCUS_Ava.kml)
+sync_args=(--season "$SEASON" --source "$SOURCE" --focus data/FOCUS_Ava.kml --focus data/WMP_Locations-2024.csv --highway)
 if [[ -s "$SELECTION" ]]; then
     sync_args+=(--selection "$SELECTION" --prune)
 fi

@@ -48,6 +48,7 @@ caw-avalanche-mapping/
 │   ├── simulations/<SEASON>/*.pro,*.smet   # SNOWPACK outputs, one set per season
 │   ├── observations/avalanches_<SEASON>.csv # field observations per season
 │   ├── FOCUS_Ava.kml                        # WMP point locations (forecast station set)
+│   ├── WMP_Locations-2024.csv               # WMP village list (2024), added to the forecast station set
 │   ├── geo/pamir_highway.geojson            # M41 route, OSM relation 180104 (ODbL)
 │   └── snowpack_stations_locations.csv      # station id → lat/lon/elevation (older runs)
 ├── docs/                  # methods, map guide, ISSW paper
@@ -116,10 +117,10 @@ It syncs the station files (applying the saved editor selection with `--prune`),
 `scripts/sync_pro_files.py` copies `.pro`/`.smet` pairs into `data/simulations/<SEASON>/`.
 
 ```bash
-# 2026-27: nearest station to every WMP point, all aspects, plus the editor's edits
+# 2026-27: nearest station to every WMP point and the Pamir Highway stations, all aspects, plus the editor's edits
 uv run python scripts/sync_pro_files.py --season 2026-2027 \
     --source /mnt/HC_Volume_106760790/model/snowpack/runs/output.caw.2026 \
-    --focus data/FOCUS_Ava.kml \
+    --focus data/FOCUS_Ava.kml --focus data/WMP_Locations-2024.csv --highway \
     --selection /var/www/html/nwp/caw/test/model_locations/model_locations.json --prune
 
 # Older seasons: one pair per (station, aspect) found in the observations, over SSH
